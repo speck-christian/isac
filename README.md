@@ -33,6 +33,7 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 pytest
 python examples/run_random_policy.py
+./scripts/build_report.sh
 ```
 
 ## First environment
@@ -44,6 +45,16 @@ This gives us a compact experimental loop for:
 - routing instances to configurations
 - evaluating cluster-aware heuristics
 - comparing policies against a global fallback baseline
+
+## Recommended benchmark direction
+
+The clearest next benchmark is a synthetic portfolio-selection setup where each selectable action is a fixed parameter vector and different subsets of instances prefer different vectors. That keeps the focus on online selection from a limited portfolio, which matches your intended problem framing better than continuous control.
+
+See [docs/benchmark_strategy.md](/Users/christianspeck/projects/isac/docs/benchmark_strategy.md) for the recommended synthetic benchmark and the planned path to real ASlib scenarios later.
+
+## Technical report
+
+A textbook-style living report is maintained in [docs/report/technical_report.tex](/Users/christianspeck/projects/isac/docs/report/technical_report.tex), with generated output at `docs/report/build/technical_report.pdf`.
 
 ## Roadmap
 

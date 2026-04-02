@@ -6,3 +6,10 @@ __pycache__/
 dist/
 build/
 *.egg-info/
+docs/report/build/
+*.aux
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.toc
