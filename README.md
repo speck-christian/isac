@@ -34,6 +34,7 @@ pip install -e ".[dev]"
 pytest
 python examples/run_random_policy.py
 ./scripts/build_report.sh
+bash scripts/run_dashboard.sh
 ```
 
 ## First environment
@@ -55,6 +56,35 @@ See [docs/benchmark_strategy.md](/Users/christianspeck/projects/isac/docs/benchm
 ## Technical report
 
 A textbook-style living report is maintained in [docs/report/technical_report.tex](/Users/christianspeck/projects/isac/docs/report/technical_report.tex), with generated output at `docs/report/build/technical_report.pdf`.
+
+## Dashboard
+
+A local dashboard for exploring the portfolio benchmark lives at [dashboard/app.py](/Users/christianspeck/projects/isac/dashboard/app.py).
+
+Install the dashboard dependencies and launch it with:
+
+```bash
+.venv/bin/python -m pip install -e ".[dashboard,dev]"
+bash scripts/run_dashboard.sh
+```
+
+The dashboard now compares several ISAC-style selector families on a held-out test set:
+
+- `DGCAC-inspired`: learned low-dimensional embedding followed by cluster-wise routing
+- `Cluster ISAC`: k-means clustering with cluster-wise best portfolio choice
+- `Classifier`: nearest-centroid prediction of the best portfolio member
+- `Regressor`: per-configuration linear runtime prediction with argmin selection
+- `Global Best`, `Random`, and `Oracle` reference baselines
+
+## Noise sweep
+
+To evaluate robustness across feature, parameter, and runtime noise jointly:
+
+```bash
+.venv/bin/python scripts/run_noise_sweep.py
+```
+
+By default this writes a CSV to `artifacts/noise_sweep/results.csv`.
 
 ## Roadmap
 

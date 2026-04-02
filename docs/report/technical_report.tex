@@ -16,7 +16,6 @@
   urlcolor=blue,
   citecolor=blue,
   plainpages=false,
-  pdfpagelabels=true,
   pdftitle={Technical Report: Instance-Specific Portfolio Selection},
   pdfauthor={Christian Speck}
 }
@@ -30,10 +29,12 @@
 
 \begin{document}
 
+\hypersetup{pageanchor=false}
 \maketitle
 \pagenumbering{roman}
 \tableofcontents
 \clearpage
+\hypersetup{pageanchor=true}
 \pagenumbering{arabic}
 
 \chapter{Introduction}
@@ -179,6 +180,47 @@ j(x) = \arg\min_{1 \le m \le M} \lVert \phi(x) - \hat{\mu}_m \rVert_2^2.
 
 This style of rule is attractive because it is transparent, cheap at inference time, and closely related to the classical ISAC intuition.
 
+\section{Baseline Selector Families}
+
+To support systematic comparison, the repository now evaluates several selector families under one shared train/test pipeline.
+
+\paragraph{Clustering selector.}
+The clustering-style baseline first partitions training instances into clusters and then assigns each cluster the empirically best portfolio member. If $a(i)$ denotes the cluster assignment of training instance $x_i$, then cluster $m$ receives label
+\[
+k_m^* = \arg\min_{1 \le k \le K}
+\frac{1}{|\{i : a(i)=m\}|}
+\sum_{i : a(i)=m} c(x_i, \theta^{(k)}).
+\]
+At inference time, a new instance is mapped to its nearest cluster center and inherits that cluster's portfolio choice.
+
+\paragraph{Classification selector.}
+The classification-style baseline treats the oracle best portfolio index
+\[
+y_i = \arg\min_{1 \le k \le K} c(x_i, \theta^{(k)})
+\]
+as a class label and trains a model to predict $y_i$ from the feature vector $\phi(x_i)$. The current lightweight implementation uses a nearest-centroid classifier as a simple stand-in for richer discriminative models.
+
+\paragraph{Regression selector.}
+The regression-style baseline fits one predictor per portfolio element:
+\[
+\hat{c}_k(\phi(x)) \approx c(x, \theta^{(k)}),
+\quad k = 1, \dots, K.
+\]
+The selected action is then
+\[
+\pi(\phi(x)) = \arg\min_{1 \le k \le K} \hat{c}_k(\phi(x)).
+\]
+This decomposition is useful because it predicts the whole performance table rather than only the best action.
+
+\paragraph{DGCAC-inspired selector.}
+A natural modern extension is to learn a representation before clustering. Let $e_\psi(\phi(x)) \in \mathbb{R}^q$ denote a learned embedding of the observable feature vector. The routing pipeline becomes
+\[
+\phi(x) \xrightarrow{\;e_\psi\;} z(x) \in \mathbb{R}^q
+\xrightarrow{\;\text{cluster}\;} m(x)
+\xrightarrow{\;\text{cluster label}\;} \pi(\phi(x)).
+\]
+This mirrors the architectural idea in recent deep-clustering approaches to instance-specific configuration: representation learning and routing are coupled, rather than assuming that the raw feature space is the right geometry for clustering. The current repository includes a lightweight approximation of this idea by using a low-dimensional learned embedding followed by cluster-wise portfolio assignment.
+
 \chapter{Evaluation Quantities}
 
 \section{Average Cost and Regret}
@@ -207,6 +249,21 @@ k_{\mathrm{global}}^* =
 
 This baseline is important because it answers a concrete question: how much value do the features provide beyond a single globally fixed parameter setting?
 
+\section{Train/Test Comparison Protocol}
+
+The current repository uses a simple but important evaluation discipline. A selector is fit on one synthetic sample from the benchmark distribution and evaluated on a separate held-out sample. Feature normalization parameters are estimated only on the training split and then reused on the test split. This keeps the comparison between clustering, classification, and regression selectors honest and prevents test-time information leakage through normalization.
+
+\section{Next Research Approximation}
+
+The first modern paper targeted by the repository is the deep-clustering approach of Song et al.\ on instance-specific algorithm configuration. The full paper uses graph-based instance representations and unsupervised deep clustering. The repository does not yet include graph encoders, but it now includes a DGCAC-inspired selector that preserves the core structural idea:
+\begin{enumerate}[leftmargin=2em]
+\item learn a compact latent representation,
+\item cluster instances in the latent space,
+\item assign each cluster the empirically best portfolio element.
+\end{enumerate}
+
+This staged approximation is deliberate. It keeps the benchmark lightweight while still moving the selector family in the direction suggested by contemporary ISAC research.
+
 \section{Separability Diagnostics}
 
 Before sophisticated methods are introduced, the benchmark should support basic diagnostics:
@@ -216,6 +273,37 @@ Before sophisticated methods are introduced, the benchmark should support basic 
 \item regret reduction relative to the global baseline,
 \item sensitivity to feature noise and overlap.
 \end{itemize}
+
+\section{Three-Noise Robustness Sweep}
+
+To evaluate a selector across all three difficulty sources simultaneously, the repository uses a Cartesian sweep over feature noise, parameter noise, and runtime noise. Let
+\[
+\Sigma_f,\ \Sigma_p,\ \Sigma_r
+\]
+denote the chosen grids for these three sources. For every triple
+\[
+(\sigma_f, \sigma_p, \sigma_r) \in \Sigma_f \times \Sigma_p \times \Sigma_r,
+\]
+the benchmark samples a fresh train/test split, fits each selector, and records held-out metrics.
+
+If $R(\pi; \sigma_f, \sigma_p, \sigma_r, s)$ denotes the average regret of selector $\pi$ under random seed $s$, then the sweep reports quantities such as
+\[
+\bar{R}(\pi) =
+\frac{1}{|\Sigma_f||\Sigma_p||\Sigma_r||S|}
+\sum_{\sigma_f \in \Sigma_f}
+\sum_{\sigma_p \in \Sigma_p}
+\sum_{\sigma_r \in \Sigma_r}
+\sum_{s \in S}
+R(\pi; \sigma_f, \sigma_p, \sigma_r, s),
+\]
+as well as a worst-case summary
+\[
+R_{\max}(\pi) =
+\max_{\sigma_f,\sigma_p,\sigma_r,s}
+R(\pi; \sigma_f, \sigma_p, \sigma_r, s).
+\]
+
+These two summaries serve different purposes: the former measures average quality over the grid, while the latter measures robustness to difficult combinations of overlapping regimes, intra-regime parameter drift, and stochastic runtime perturbations.
 
 \chapter{Path to Real Data}
 
@@ -247,6 +335,18 @@ The PDF version of this report is generated from this \LaTeX{} source using \tex
 ./scripts/build_report.sh
 \end{verbatim}
 produces an updated PDF in \texttt{docs/report/build/technical\_report.pdf}.
+
+\section{Interactive Dashboard}
+
+To support rapid iteration on the benchmark design, the repository also includes a local dashboard implemented with Streamlit and Plotly. Its purpose is not merely presentational. It acts as an inspection tool for checking whether the benchmark exhibits the right qualitative structure:
+\begin{itemize}[leftmargin=2em]
+\item separable but overlapping feature-space regimes,
+\item a nontrivial action mix across portfolio members,
+\item measurable regret differences between routing heuristics,
+\item interpretable instance-level failures.
+\end{itemize}
+
+The dashboard exposes the sampled feature geometry, portfolio layout, selector scorecards, and instance-level outcomes in one place. This is useful because benchmark design errors often reveal themselves visually before they reveal themselves through aggregate metrics alone.
 
 \chapter{Conclusion}
 

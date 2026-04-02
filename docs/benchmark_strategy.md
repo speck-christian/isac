@@ -58,11 +58,48 @@ Two especially relevant paths:
 ## Recommendation order
 
 1. Use the synthetic portfolio benchmark now.
-2. Add a simple selector baseline such as nearest-centroid or cluster-wise best configuration.
-3. After the abstraction feels right, add an ASlib loader.
-4. Treat each ASlib solver as either:
+2. Build a dashboard that makes latent regimes, portfolio geometry, selector actions, and regret visible.
+3. Compare a small family of selectors under one shared train/test protocol:
+   - learned-embedding plus clustering inspired by modern deep ISAC variants
+   - clustering with cluster-wise best configuration
+   - classification of the best configuration
+   - regression of per-configuration runtime
+4. After the abstraction feels right, add an ASlib loader.
+5. Treat each ASlib solver as either:
    - a direct portfolio member, or
    - a stand-in for a precomputed parameter setting of one base solver
+
+## Paper target for the next selector family
+
+The first modern paper to approximate in this repo is:
+
+- Wen Song, Yi Liu, Zhiguang Cao, Yaoxin Wu, and Qiqiang Li,
+  `Instance-specific algorithm configuration via unsupervised deep graph clustering`,
+  Engineering Applications of Artificial Intelligence, 125, 2023.
+
+The repo does not yet model graph-structured instances or deep autoencoders directly. The practical first step is a DGCAC-inspired selector that:
+
+1. learns a compact embedding from the current feature vectors,
+2. clusters in that latent space,
+3. assigns each latent cluster its best portfolio member.
+
+## Robustness evaluation across all three noise sources
+
+The recommended evaluation protocol is a 3D grid sweep:
+
+- `feature_noise in {0.10, 0.40, 0.80}`
+- `parameter_noise in {0.02, 0.08, 0.16}`
+- `runtime_noise in {0.00, 0.03, 0.08}`
+
+For each grid point:
+
+1. sample a fresh train/test split,
+2. fit every selector,
+3. record average regret, average runtime, and accuracy,
+4. repeat across several seeds,
+5. aggregate by mean and worst-case regret.
+
+The repo now includes a scriptable noise sweep and a dashboard heatmap view for exactly this purpose.
 
 ## Sources
 
