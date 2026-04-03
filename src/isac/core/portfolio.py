@@ -23,6 +23,7 @@ class PortfolioInstance:
 
     features: np.ndarray
     ideal_params: np.ndarray
+    base_difficulty: float
     runtimes: np.ndarray
     best_config: int
     regime_id: int
@@ -83,6 +84,44 @@ class PortfolioBenchmark:
     def n_configs(self) -> int:
         return len(self.portfolio)
 
+    def evaluate_parameters(
+        self,
+        instance: PortfolioInstance,
+        parameter_values: np.ndarray,
+        *,
+        add_noise: bool = False,
+    ) -> float:
+        """Evaluate an arbitrary parameter vector on a sampled instance."""
+
+        parameter_values = np.asarray(parameter_values, dtype=np.float64)
+        mismatch = float(((parameter_values - instance.ideal_params) ** 2).sum())
+        runtime = instance.base_difficulty + 4.0 * mismatch
+        if add_noise:
+            runtime += float(self.rng.normal(0.0, self.runtime_noise))
+        return max(runtime, 0.01)
+
+    def evaluate_portfolio(
+        self,
+        instance: PortfolioInstance,
+        portfolio_values: np.ndarray,
+        *,
+        add_noise: bool = False,
+    ) -> np.ndarray:
+        """Evaluate a full learned portfolio on a sampled instance."""
+
+        return np.array(
+            [
+                self.evaluate_parameters(instance, parameter_values, add_noise=add_noise)
+                for parameter_values in portfolio_values
+            ],
+            dtype=np.float64,
+        )
+
+    def optimal_runtime(self, instance: PortfolioInstance) -> float:
+        """Continuous oracle runtime achieved by the latent ideal parameter vector."""
+
+        return float(instance.base_difficulty)
+
     def sample_instance(self) -> PortfolioInstance:
         regime_id = int(self.rng.integers(0, len(self.regime_centers)))
         center = self.regime_centers[regime_id]
@@ -98,18 +137,23 @@ class PortfolioBenchmark:
         )
 
         base_difficulty = 1.0 + float(np.abs(features * self.difficulty_weights).mean())
-        runtimes = []
-        for config in self.portfolio:
-            mismatch = float(((config.values - ideal_params) ** 2).sum())
-            runtime = base_difficulty + 4.0 * mismatch
-            runtime += float(self.rng.normal(0.0, self.runtime_noise))
-            runtimes.append(max(runtime, 0.01))
-
-        runtimes_array = np.array(runtimes, dtype=np.float64)
+        runtimes_array = self.evaluate_portfolio(
+            PortfolioInstance(
+                features=features.astype(np.float64),
+                ideal_params=ideal_params.astype(np.float64),
+                base_difficulty=float(base_difficulty),
+                runtimes=np.empty(0, dtype=np.float64),
+                best_config=0,
+                regime_id=regime_id,
+            ),
+            np.stack([config.values for config in self.portfolio], axis=0),
+            add_noise=True,
+        )
         best_config = int(np.argmin(runtimes_array))
         return PortfolioInstance(
             features=features.astype(np.float64),
             ideal_params=ideal_params.astype(np.float64),
+            base_difficulty=float(base_difficulty),
             runtimes=runtimes_array,
             best_config=best_config,
             regime_id=regime_id,

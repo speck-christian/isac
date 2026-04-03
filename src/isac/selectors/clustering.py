@@ -7,12 +7,15 @@ from dataclasses import dataclass, field
 import numpy as np
 import torch
 
+from isac.selectors.portfolio_learning import assign_to_portfolio
+
 
 @dataclass(slots=True)
 class KMeansClusterSelector:
     """Cluster instances and assign the empirically best config to each cluster."""
 
     n_configs: int
+    max_portfolio_size: int = 12
     n_clusters: int | None = None
     max_iter: int = 25
     seed: int | None = None
@@ -20,16 +23,22 @@ class KMeansClusterSelector:
     centers_: torch.Tensor = field(init=False)
     cluster_best_configs_: torch.Tensor = field(init=False)
     fallback_config_: int = field(init=False, default=0)
+    portfolio_values_: np.ndarray = field(init=False)
 
     def fit(
         self,
         features: np.ndarray,
         runtimes: np.ndarray,
         best_configs: np.ndarray,
+        ideal_params: np.ndarray | None = None,
     ) -> KMeansClusterSelector:
         feature_tensor = torch.as_tensor(features, dtype=torch.float32)
         runtime_tensor = torch.as_tensor(runtimes, dtype=torch.float32)
-        cluster_count = self.n_clusters or self.n_configs
+        cluster_count = self.n_clusters or (
+            min(self.max_portfolio_size, feature_tensor.shape[0])
+            if ideal_params is not None
+            else self.n_configs
+        )
 
         generator = torch.Generator()
         if self.seed is not None:
@@ -53,6 +62,23 @@ class KMeansClusterSelector:
                     centers[cluster_index] = feature_tensor[mask].mean(dim=0)
 
         self.centers_ = centers
+        if ideal_params is not None:
+            portfolio_values = []
+            for cluster_index in range(cluster_count):
+                mask = assignments == cluster_index
+                if bool(mask.any()):
+                    portfolio_values.append(np.asarray(ideal_params[mask.cpu().numpy()].mean(axis=0)))
+                else:
+                    portfolio_values.append(np.asarray(ideal_params.mean(axis=0)))
+            self.portfolio_values_ = np.stack(portfolio_values, axis=0).astype(np.float64)
+            cluster_targets = assign_to_portfolio(ideal_params, self.portfolio_values_)
+            self.fallback_config_ = int(
+                np.bincount(cluster_targets, minlength=len(self.portfolio_values_)).argmax()
+            )
+            self.cluster_best_configs_ = torch.arange(cluster_count, dtype=torch.long)
+            return self
+
+        self.portfolio_values_ = np.eye(self.n_configs, dtype=np.float64)
         self.fallback_config_ = int(np.bincount(best_configs, minlength=self.n_configs).argmax())
 
         cluster_best_configs: list[int] = []

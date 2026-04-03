@@ -7,7 +7,7 @@ from isac.baselines import RandomPolicy
 
 
 def main() -> None:
-    env = make("isac-simple-v0", seed=7, horizon=10)
+    env = make("isac-dynamic-v0", seed=7, horizon=10)
     policy = RandomPolicy(n_actions=env.n_configs, seed=7)
 
     observation, info = env.reset()
@@ -23,7 +23,8 @@ def main() -> None:
         total_reward += reward
         print(
             f"action={action} reward={reward:.3f} "
-            f"best={step_info['best_config']} regret={step_info['regret']:.3f}"
+            f"best={step_info['best_config']} regret={step_info['regret']:.3f} "
+            f"switch={step_info['switch_cost']:.3f}"
         )
 
     print(f"episode_total_reward={total_reward:.3f}")

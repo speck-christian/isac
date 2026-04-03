@@ -12,7 +12,13 @@ class Selector(Protocol):
 
     name: str
 
-    def fit(self, features: np.ndarray, runtimes: np.ndarray, best_configs: np.ndarray) -> Selector:
+    def fit(
+        self,
+        features: np.ndarray,
+        runtimes: np.ndarray,
+        best_configs: np.ndarray,
+        ideal_params: np.ndarray | None = None,
+    ) -> Selector:
         ...
 
     def predict(self, features: np.ndarray) -> np.ndarray:

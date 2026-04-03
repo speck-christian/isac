@@ -41,3 +41,49 @@ def test_reset_seed_reproducibility() -> None:
     obs_b, _ = env.reset(seed=11)
 
     assert np.allclose(obs_a, obs_b)
+
+
+def test_dynamic_env_returns_registered_environment() -> None:
+    env = make("isac-dynamic-v0", seed=5, horizon=6)
+    observation, info = env.reset()
+
+    assert observation.shape == (env.n_features,)
+    assert info["dynamic"] is True
+    assert info["horizon"] == 6
+    assert info["partial_observability"] is True
+    assert info["multimodal_surface_scale"] == env.benchmark.multimodal_surface_scale
+
+
+def test_dynamic_env_features_change_over_time() -> None:
+    env = make("isac-dynamic-v0", seed=6, horizon=4)
+    first_observation, _ = env.reset()
+    second_observation, _, terminated, _, _ = env.step(0)
+
+    assert terminated is False
+    assert not np.allclose(first_observation, second_observation)
+
+
+def test_dynamic_env_applies_switching_cost() -> None:
+    env = make("isac-dynamic-v0", seed=7, horizon=4)
+    env.reset()
+    _, _, _, _, first_info = env.step(0)
+    _, _, _, _, second_info = env.step(1)
+
+    assert first_info["switch_cost"] == 0.0
+    assert second_info["switch_cost"] == env.benchmark.switching_cost
+
+
+def test_dynamic_env_observation_is_partially_observed() -> None:
+    env = make(
+        "isac-dynamic-v0",
+        seed=8,
+        horizon=4,
+        observation_noise=0.25,
+        missing_feature_prob=0.5,
+    )
+    observation, _ = env.reset()
+    current = env.current_state
+
+    assert current is not None
+    assert not np.allclose(observation, current.latent_features)
+    assert np.any(current.observation_mask < 1.0)

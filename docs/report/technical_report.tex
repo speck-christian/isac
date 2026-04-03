@@ -193,8 +193,8 @@ k_m^* = \arg\min_{1 \le k \le K}
 \]
 At inference time, a new instance is mapped to its nearest cluster center and inherits that cluster's portfolio choice.
 
-\paragraph{Classification selector.}
-The classification-style baseline treats the oracle best portfolio index
+\paragraph{Privileged classifier.}
+The privileged classification comparator treats the oracle best portfolio index
 \[
 y_i = \arg\min_{1 \le k \le K} c(x_i, \theta^{(k)})
 \]
@@ -316,6 +316,87 @@ R(\pi; \sigma_f, \sigma_p, \sigma_r, s).
 \]
 
 These two summaries serve different purposes: the former measures average quality over the grid, while the latter measures robustness to difficult combinations of overlapping regimes, intra-regime parameter drift, and stochastic runtime perturbations.
+
+\chapter{Current Results}
+
+\section{Living Results Policy}
+
+This chapter is intended to be updated whenever the repository's current benchmark results change in a meaningful way. In practice, that means a report update should accompany any commit that changes selector logic, evaluation protocol, or the precomputed sweep artifact used by the dashboard.
+
+\section{Latest Validated Snapshots}
+
+The repository recently switched from a fixed shared action set to \emph{selector-specific learned portfolios} with a configurable cap $N_s$ and current default $N_s = 12$. Because of that protocol change, the most important numbers to trust are the fresh post-change snapshots validated directly against the current code path.
+
+The privileged classifier should still be interpreted as a truth-aware comparator rather than a realistic deployment model, since it relies on oracle best-config labels during training.
+
+\subsection{Static Representative Snapshot}
+
+For the static benchmark, the latest validated run uses
+\[
+\sigma_f = 0.40,\qquad \sigma_p = 0.08,\qquad \sigma_r = 0.03,
+\]
+with 360 training instances, 360 test instances, and seed 7. Under this learned-portfolio evaluation, the ranking is:
+
+\begin{center}
+\begin{tabular}{lccc}
+\toprule
+Selector & Average regret & Average runtime & Accuracy \\
+\midrule
+Cluster ISAC & 0.044573 & 2.002495 & 0.575000 \\
+MLP Selector & 0.056062 & 2.013985 & 0.375000 \\
+DGCAC-inspired & 0.068389 & 2.026312 & 0.294444 \\
+Regressor & 0.072619 & 2.030542 & 0.275000 \\
+Privileged Classifier & 0.076731 & 2.034653 & 0.261111 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The main surprise is that Cluster ISAC remains the strongest method on regret under the representative static setting even after the learned-portfolio cap is increased to $N_s = 12$. This keeps the static benchmark firmly in the regime where region-specific routing still matters.
+
+\subsection{Dynamic Enriched Snapshot}
+
+For the dynamic benchmark, the latest validated run uses horizon 16 together with
+\[
+\texttt{drift\_scale}=0.22,\quad
+\texttt{regime\_switch\_prob}=0.18,\quad
+\texttt{switching\_cost}=0.04,
+\]
+\[
+\texttt{observation\_noise}=0.10,\quad
+\texttt{missing\_feature\_prob}=0.22,\quad
+\texttt{multimodal\_surface\_scale}=0.30,
+\]
+with 80 training episodes, 80 test episodes, and seed 11. Measured by average total penalty (regret plus switching cost), the ranking is:
+
+\begin{center}
+\begin{tabular}{lcccc}
+\toprule
+Selector & Avg. regret & Avg. switch cost & Avg. total penalty & Accuracy \\
+\midrule
+Temporal Soft Cluster ISAC & 0.061812 & 0.007031 & 0.068843 & 0.317188 \\
+Regressor & 0.064847 & 0.012531 & 0.077378 & 0.350000 \\
+Cluster ISAC & 0.063036 & 0.014687 & 0.077723 & 0.324219 \\
+DGCAC-inspired & 0.071707 & 0.006781 & 0.078488 & 0.281250 \\
+MLP Selector & 0.067181 & 0.015219 & 0.082399 & 0.357031 \\
+Privileged Classifier & 0.078971 & 0.013656 & 0.092627 & 0.318750 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+This dynamic result is consistent with the current simulator design: once partial observability, drift, switching costs, and multimodal quality surfaces are all active, the problem rewards \emph{history-aware soft routing}. The new temporal soft-cluster model improves on both the plain regressor and the original hard Cluster ISAC by reducing switching cost without sacrificing local specialization.
+
+\section{Current Takeaway}
+
+At the moment, the benchmark supports two different short-run conclusions:
+\begin{itemize}[leftmargin=2em]
+\item in the static learned-portfolio setting, Cluster ISAC is the current regret leader,
+\item in the enriched dynamic setting, Temporal Soft Cluster ISAC is now the strongest model on total penalty,
+\item the regressor and the original Cluster ISAC remain the strongest simpler baselines and are now very close behind the new dynamic leader,
+\item MLP and DGCAC-inspired remain competitive, but neither is yet the clear dominant model across both regimes,
+\item the privileged classifier remains useful as a supervision upper-bound reference, but it is not the realistic deployment winner.
+\end{itemize}
+
+This is a useful outcome for the project. It suggests that allowing each selector to derive its own parameter portfolio materially changes the comparison, and it reinforces the need to distinguish static one-shot selection from dynamic partially observed control. It also provides a clearer research direction: dynamic ISAC benefits materially from temporal context and soft routing, whereas the static benchmark still rewards simpler partition-based selectors.
 
 \chapter{Path to Real Data}
 

@@ -117,7 +117,14 @@ def build_dashboard_data(
 
 @st.cache_data(show_spinner=False)
 def load_precomputed_noise_sweep_data() -> pd.DataFrame:
-    return pd.read_csv(PRECOMPUTED_SWEEP_PATH)
+    frame = pd.read_csv(PRECOMPUTED_SWEEP_PATH)
+    return frame.assign(
+        selector=lambda data: data["selector"].replace(
+            {
+                "Classifier": "Privileged Classifier",
+            }
+        )
+    )
 
 
 def plot_parameter_surface(
@@ -213,13 +220,16 @@ st.markdown(
     '<div class="section-title">Algorithm Curves vs Noise Variables</div>',
     unsafe_allow_html=True,
 )
+st.caption(
+    "Privileged Classifier is shown as a truth-aware comparator against the unlabeled alternatives."
+)
 sweep_results = load_precomputed_noise_sweep_data()
 sweep_results = sweep_results[
     sweep_results["selector"].isin(
         [
             "DGCAC-inspired",
             "Cluster ISAC",
-            "Classifier",
+            "Privileged Classifier",
             "MLP Selector",
             "Regressor",
         ]
@@ -239,14 +249,14 @@ curve_figure = make_subplots(
 selector_order = [
     "DGCAC-inspired",
     "Cluster ISAC",
-    "Classifier",
+    "Privileged Classifier",
     "MLP Selector",
     "Regressor",
 ]
 selector_colors = {
     "DGCAC-inspired": "#0f6e76",
     "Cluster ISAC": "#d8892b",
-    "Classifier": "#b44c32",
+    "Privileged Classifier": "#b44c32",
     "MLP Selector": "#8c5e3c",
     "Regressor": "#6e7f52",
 }
@@ -513,7 +523,7 @@ with simulation_controls[5]:
         options=[
             "DGCAC-inspired",
             "Cluster ISAC",
-            "Classifier",
+            "Privileged Classifier",
             "MLP Selector",
             "Regressor",
             "Oracle",
@@ -522,7 +532,7 @@ with simulation_controls[5]:
     )
     st.markdown("</div>", unsafe_allow_html=True)
 
-selector_table, _, instance_table, portfolio_table = build_dashboard_data(
+selector_table, _, instance_table, _portfolio_table = build_dashboard_data(
     n_instances=n_instances,
     feature_noise=feature_noise,
     parameter_noise=parameter_noise,
@@ -531,17 +541,10 @@ selector_table, _, instance_table, portfolio_table = build_dashboard_data(
 )
 
 selector_key = selected_selector.lower().replace(" ", "_")
-choice_column = f"choice_name_{selector_key}"
-regret_column = f"regret_{selector_key}"
-
-selected_param_table = portfolio_table.rename(
-    columns={
-        "config_name": choice_column,
-        "param_1": "selected_param_1",
-        "param_2": "selected_param_2",
-    }
-)[[choice_column, "selected_param_1", "selected_param_2"]]
-instance_table = instance_table.merge(selected_param_table, on=choice_column, how="left")
+instance_table = instance_table.assign(
+    selected_param_1=instance_table[f"selected_param_1_{selector_key}"],
+    selected_param_2=instance_table[f"selected_param_2_{selector_key}"],
+)
 
 true_left, true_right = st.columns(2, gap="small")
 with true_left:

@@ -72,7 +72,11 @@ The dashboard now compares several ISAC-style selector families on a held-out te
 
 - `DGCAC-inspired`: learned low-dimensional embedding followed by cluster-wise routing
 - `Cluster ISAC`: k-means clustering with cluster-wise best portfolio choice
-- `Classifier`: nearest-centroid prediction of the best portfolio member
+- `Privileged Classifier`: nearest-centroid prediction of the oracle best portfolio member, used as a truth-aware comparator
+
+The repo now includes two environment families:
+- `isac-simple-v0`: one-shot contextual selection across independent instances
+- `isac-dynamic-v0`: evolving instances with regime drift and switching cost for online reconfiguration
 - `Regressor`: per-configuration linear runtime prediction with argmin selection
 - `Global Best`, `Random`, and `Oracle` reference baselines
 
