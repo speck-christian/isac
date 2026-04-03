@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import numpy as np
+import torch
 
 
 @dataclass(slots=True)
@@ -16,8 +17,8 @@ class KMeansClusterSelector:
     max_iter: int = 25
     seed: int | None = None
     name: str = "Cluster ISAC"
-    centers_: np.ndarray = field(init=False)
-    cluster_best_configs_: np.ndarray = field(init=False)
+    centers_: torch.Tensor = field(init=False)
+    cluster_best_configs_: torch.Tensor = field(init=False)
     fallback_config_: int = field(init=False, default=0)
 
     def fit(
@@ -26,38 +27,47 @@ class KMeansClusterSelector:
         runtimes: np.ndarray,
         best_configs: np.ndarray,
     ) -> KMeansClusterSelector:
+        feature_tensor = torch.as_tensor(features, dtype=torch.float32)
+        runtime_tensor = torch.as_tensor(runtimes, dtype=torch.float32)
         cluster_count = self.n_clusters or self.n_configs
-        rng = np.random.default_rng(self.seed)
-        initial_indices = rng.choice(len(features), size=cluster_count, replace=False)
-        centers = features[initial_indices].copy()
 
-        assignments = np.zeros(len(features), dtype=np.int64)
+        generator = torch.Generator()
+        if self.seed is not None:
+            generator.manual_seed(self.seed)
+        initial_indices = torch.randperm(
+            feature_tensor.shape[0],
+            generator=generator,
+        )[:cluster_count]
+        centers = feature_tensor[initial_indices].clone()
+
+        assignments = torch.zeros(feature_tensor.shape[0], dtype=torch.long)
         for _ in range(self.max_iter):
-            distances = ((features[:, None, :] - centers[None, :, :]) ** 2).sum(axis=2)
-            new_assignments = distances.argmin(axis=1).astype(np.int64)
-            if np.array_equal(assignments, new_assignments):
+            distances = torch.cdist(feature_tensor, centers, p=2) ** 2
+            new_assignments = distances.argmin(dim=1)
+            if torch.equal(assignments, new_assignments):
                 break
             assignments = new_assignments
             for cluster_index in range(cluster_count):
                 mask = assignments == cluster_index
-                if mask.any():
-                    centers[cluster_index] = features[mask].mean(axis=0)
+                if bool(mask.any()):
+                    centers[cluster_index] = feature_tensor[mask].mean(dim=0)
 
         self.centers_ = centers
         self.fallback_config_ = int(np.bincount(best_configs, minlength=self.n_configs).argmax())
 
-        cluster_best_configs = []
+        cluster_best_configs: list[int] = []
         for cluster_index in range(cluster_count):
             mask = assignments == cluster_index
-            if mask.any():
-                mean_runtimes = runtimes[mask].mean(axis=0)
-                cluster_best_configs.append(int(np.argmin(mean_runtimes)))
+            if bool(mask.any()):
+                mean_runtimes = runtime_tensor[mask].mean(dim=0)
+                cluster_best_configs.append(int(mean_runtimes.argmin().item()))
             else:
                 cluster_best_configs.append(self.fallback_config_)
-        self.cluster_best_configs_ = np.array(cluster_best_configs, dtype=np.int64)
+        self.cluster_best_configs_ = torch.tensor(cluster_best_configs, dtype=torch.long)
         return self
 
     def predict(self, features: np.ndarray) -> np.ndarray:
-        distances = ((features[:, None, :] - self.centers_[None, :, :]) ** 2).sum(axis=2)
-        nearest_clusters = distances.argmin(axis=1).astype(np.int64)
-        return self.cluster_best_configs_[nearest_clusters]
+        feature_tensor = torch.as_tensor(features, dtype=torch.float32)
+        distances = torch.cdist(feature_tensor, self.centers_, p=2) ** 2
+        nearest_clusters = distances.argmin(dim=1)
+        return self.cluster_best_configs_[nearest_clusters].cpu().numpy().astype(np.int64)

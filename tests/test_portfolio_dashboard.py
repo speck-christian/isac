@@ -19,9 +19,10 @@ def test_evaluate_selectors_returns_expected_tables() -> None:
         "Cluster ISAC",
         "DGCAC-inspired",
         "Classifier",
+        "MLP Selector",
         "Regressor",
     }
-    assert len(action_table) == benchmark.n_configs * 7
+    assert len(action_table) == benchmark.n_configs * 8
     assert len(instance_table) == 120
     assert "regret_cluster_isac" in instance_table.columns
     assert "regret_dgcac-inspired" in instance_table.columns

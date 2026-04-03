@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import numpy as np
+import torch
 
 
 @dataclass(slots=True)
@@ -13,7 +14,7 @@ class LinearRuntimeRegressorSelector:
 
     n_configs: int
     name: str = "Regressor"
-    coefficients_: np.ndarray = field(init=False)
+    coefficients_: torch.Tensor = field(init=False)
 
     def fit(
         self,
@@ -22,17 +23,17 @@ class LinearRuntimeRegressorSelector:
         best_configs: np.ndarray,
     ) -> LinearRuntimeRegressorSelector:
         del best_configs
-        bias = np.ones((len(features), 1), dtype=features.dtype)
-        design = np.concatenate([features, bias], axis=1)
-        coefficients = []
-        for config_index in range(self.n_configs):
-            coef, *_ = np.linalg.lstsq(design, runtimes[:, config_index], rcond=None)
-            coefficients.append(coef)
-        self.coefficients_ = np.stack(coefficients, axis=0)
+        feature_tensor = torch.as_tensor(features, dtype=torch.float32)
+        runtime_tensor = torch.as_tensor(runtimes, dtype=torch.float32)
+        bias = torch.ones((feature_tensor.shape[0], 1), dtype=feature_tensor.dtype)
+        design = torch.cat([feature_tensor, bias], dim=1)
+        solution = torch.linalg.lstsq(design, runtime_tensor).solution
+        self.coefficients_ = solution
         return self
 
     def predict(self, features: np.ndarray) -> np.ndarray:
-        bias = np.ones((len(features), 1), dtype=features.dtype)
-        design = np.concatenate([features, bias], axis=1)
-        predictions = design @ self.coefficients_.T
-        return predictions.argmin(axis=1).astype(np.int64)
+        feature_tensor = torch.as_tensor(features, dtype=torch.float32)
+        bias = torch.ones((feature_tensor.shape[0], 1), dtype=feature_tensor.dtype)
+        design = torch.cat([feature_tensor, bias], dim=1)
+        predictions = design @ self.coefficients_
+        return predictions.argmin(dim=1).cpu().numpy().astype(np.int64)

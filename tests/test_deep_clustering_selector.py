@@ -31,5 +31,9 @@ def test_dgcac_inspired_selector_predicts_shape() -> None:
         seed=0,
     ).fit(features, runtimes, best_configs)
     predictions = selector.predict(features)
+    embedding = selector.transform(features)
 
     assert predictions.shape == (4,)
+    assert embedding.shape == (4, 2)
+    assert np.all(predictions >= 0)
+    assert np.all(predictions < 2)

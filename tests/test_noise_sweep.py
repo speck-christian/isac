@@ -19,6 +19,7 @@ def test_noise_sweep_returns_expected_grid_rows() -> None:
         "Cluster ISAC",
         "DGCAC-inspired",
         "Classifier",
+        "MLP Selector",
         "Regressor",
     }
     assert set(results["selector"]) == expected_selectors

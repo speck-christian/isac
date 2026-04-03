@@ -10,6 +10,7 @@ from isac.selectors import (
     DeepClusterEmbeddingSelector,
     KMeansClusterSelector,
     LinearRuntimeRegressorSelector,
+    MLPClassifierSelector,
     NearestCentroidClassifierSelector,
 )
 
@@ -156,6 +157,7 @@ def evaluate_selectors(
         DeepClusterEmbeddingSelector(n_configs=local_benchmark.n_configs, seed=seed),
         NearestCentroidClassifierSelector(n_configs=local_benchmark.n_configs),
         LinearRuntimeRegressorSelector(n_configs=local_benchmark.n_configs),
+        MLPClassifierSelector(n_configs=local_benchmark.n_configs, seed=seed),
     ]
     for selector in model_selectors:
         selector.fit(train_features, train_runtimes, train_best_configs)

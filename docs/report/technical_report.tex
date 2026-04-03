@@ -200,6 +200,17 @@ y_i = \arg\min_{1 \le k \le K} c(x_i, \theta^{(k)})
 \]
 as a class label and trains a model to predict $y_i$ from the feature vector $\phi(x_i)$. The current lightweight implementation uses a nearest-centroid classifier as a simple stand-in for richer discriminative models.
 
+\paragraph{MLP selector.}
+A more expressive discriminative baseline is a feed-forward network
+\[
+f_\omega : \mathbb{R}^d \to \mathbb{R}^K
+\]
+that maps instance features to one logit per portfolio element. The selected action is
+\[
+\pi(\phi(x)) = \arg\max_{1 \le k \le K} f_\omega(\phi(x))_k.
+\]
+This model family is important because it can represent nonlinear decision boundaries in feature space while still remaining a direct predictor of the oracle best portfolio member.
+
 \paragraph{Regression selector.}
 The regression-style baseline fits one predictor per portfolio element:
 \[
@@ -220,6 +231,7 @@ A natural modern extension is to learn a representation before clustering. Let $
 \xrightarrow{\;\text{cluster label}\;} \pi(\phi(x)).
 \]
 This mirrors the architectural idea in recent deep-clustering approaches to instance-specific configuration: representation learning and routing are coupled, rather than assuming that the raw feature space is the right geometry for clustering. The current repository includes a lightweight approximation of this idea by using a low-dimensional learned embedding followed by cluster-wise portfolio assignment.
+In its present form, the embedding stage is trained as a denoising autoencoder and the routing stage uses soft latent-space assignments, so the selector computes an expected runtime across nearby clusters rather than committing to a single hard cluster label.
 
 \chapter{Evaluation Quantities}
 
@@ -259,7 +271,7 @@ The first modern paper targeted by the repository is the deep-clustering approac
 \begin{enumerate}[leftmargin=2em]
 \item learn a compact latent representation,
 \item cluster instances in the latent space,
-\item assign each cluster the empirically best portfolio element.
+\item aggregate cluster-conditioned runtime estimates to choose a portfolio element.
 \end{enumerate}
 
 This staged approximation is deliberate. It keeps the benchmark lightweight while still moving the selector family in the direction suggested by contemporary ISAC research.
@@ -336,6 +348,17 @@ The PDF version of this report is generated from this \LaTeX{} source using \tex
 \end{verbatim}
 produces an updated PDF in \texttt{docs/report/build/technical\_report.pdf}.
 
+\section{PyTorch Migration}
+
+The learning-oriented selector families are now implemented with PyTorch while preserving the repository's original NumPy-facing \texttt{fit}/\texttt{predict} interface. This change keeps the experiment harness stable while making it easier to introduce modern neural baselines, reuse optimizers such as Adam, and extend the DGCAC-inspired selector toward deeper encoders. In practical terms, the migration currently affects:
+\begin{itemize}[leftmargin=2em]
+\item the linear regression selector, via tensor-based least-squares solves,
+\item the MLP selector, via supervised cross-entropy training,
+\item the DGCAC-inspired selector, via a denoising autoencoder and soft latent routing.
+\end{itemize}
+
+This is a useful architectural boundary: benchmark generation remains lightweight and deterministic, while model training can now scale toward more realistic representation-learning experiments.
+
 \section{Interactive Dashboard}
 
 To support rapid iteration on the benchmark design, the repository also includes a local dashboard implemented with Streamlit and Plotly. Its purpose is not merely presentational. It acts as an inspection tool for checking whether the benchmark exhibits the right qualitative structure:
@@ -346,7 +369,7 @@ To support rapid iteration on the benchmark design, the repository also includes
 \item interpretable instance-level failures.
 \end{itemize}
 
-The dashboard exposes the sampled feature geometry, portfolio layout, selector scorecards, and instance-level outcomes in one place. This is useful because benchmark design errors often reveal themselves visually before they reveal themselves through aggregate metrics alone.
+The dashboard exposes the sampled feature geometry, selector-induced parameter surfaces, robustness curves over the three noise variables, and aggregate summaries such as worst-case regret and win rate over the sweep grid. This is useful because benchmark design errors often reveal themselves visually before they reveal themselves through aggregate metrics alone.
 
 \chapter{Conclusion}
 
