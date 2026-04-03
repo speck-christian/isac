@@ -23,6 +23,9 @@ dashboard = [
   "plotly>=6.0",
   "streamlit>=1.44",
 ]
+smac = [
+  "smac>=2.3",
+]
 dev = [
   "pytest>=8.0",
   "ruff>=0.11",

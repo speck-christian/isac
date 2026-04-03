@@ -1,0 +1,12 @@
+{
+  "artifact_tag": "default",
+  "seed": 11,
+  "n_episodes": 80,
+  "horizon": 16,
+  "drift_scale": 0.22,
+  "regime_switch_prob": 0.18,
+  "switching_cost": 0.04,
+  "observation_noise": 0.1,
+  "missing_feature_prob": 0.22,
+  "multimodal_surface_scale": 0.3
+}

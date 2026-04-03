@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -10,10 +11,10 @@ import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
 
-from isac.analysis import evaluate_dynamic_selectors
-from isac.core import DynamicPortfolioBenchmark
-
 PRECOMPUTED_DYNAMIC_SWEEP_PATH = Path("artifacts/dynamic/seed_episode_sweep.csv")
+PRECOMPUTED_DYNAMIC_SUMMARY_PATH = Path("artifacts/dynamic/dashboard_selector_summary.csv")
+PRECOMPUTED_DYNAMIC_TRACE_PATH = Path("artifacts/dynamic/dashboard_trace_table.csv")
+PRECOMPUTED_DYNAMIC_METADATA_PATH = Path("artifacts/dynamic/dashboard_metadata.json")
 DEFAULT_DYNAMIC_SWEEP = {
     "horizon": 16,
     "drift_scale": 0.22,
@@ -111,34 +112,12 @@ st.markdown(
 
 
 @st.cache_data(show_spinner=False)
-def build_dynamic_dashboard_data(
-    *,
-    n_episodes: int,
-    horizon: int,
-    drift_scale: float,
-    regime_switch_prob: float,
-    switching_cost: float,
-    observation_noise: float,
-    missing_feature_prob: float,
-    multimodal_surface_scale: float,
-    seed: int,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    benchmark = DynamicPortfolioBenchmark(
-        horizon=horizon,
-        drift_scale=drift_scale,
-        regime_switch_prob=regime_switch_prob,
-        switching_cost=switching_cost,
-        observation_noise=observation_noise,
-        missing_feature_prob=missing_feature_prob,
-        multimodal_surface_scale=multimodal_surface_scale,
-        seed=seed,
-    )
-    selector_table, trace_table = evaluate_dynamic_selectors(
-        benchmark=benchmark,
-        n_episodes=n_episodes,
-        seed=seed,
-    )
-    return selector_table, trace_table
+def load_dynamic_dashboard_data(
+) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, float | int | str]]:
+    selector_table = pd.read_csv(PRECOMPUTED_DYNAMIC_SUMMARY_PATH)
+    trace_table = pd.read_csv(PRECOMPUTED_DYNAMIC_TRACE_PATH)
+    metadata = json.loads(PRECOMPUTED_DYNAMIC_METADATA_PATH.read_text())
+    return selector_table, trace_table, metadata
 
 
 @st.cache_data(show_spinner=False)
@@ -163,108 +142,48 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-controls = st.columns((0.8, 0.9, 0.9, 1.0, 1.0, 1.0, 1.0, 1.0), gap="small")
-with controls[0]:
-    st.markdown('<div class="control-card">', unsafe_allow_html=True)
-    seed = st.slider("Seed", min_value=0, max_value=100, value=11)
-    st.markdown("</div>", unsafe_allow_html=True)
-with controls[1]:
-    st.markdown('<div class="control-card">', unsafe_allow_html=True)
-    n_episodes = st.slider("Episodes", min_value=20, max_value=200, value=80, step=20)
-    st.markdown("</div>", unsafe_allow_html=True)
-with controls[2]:
-    st.markdown('<div class="control-card">', unsafe_allow_html=True)
-    horizon = st.slider("Horizon", min_value=8, max_value=40, value=16, step=4)
-    st.markdown("</div>", unsafe_allow_html=True)
-with controls[3]:
-    st.markdown('<div class="control-card">', unsafe_allow_html=True)
-    drift_scale = st.slider("Drift scale", min_value=0.05, max_value=0.40, value=0.22, step=0.01)
-    st.markdown("</div>", unsafe_allow_html=True)
-with controls[4]:
-    st.markdown('<div class="control-card">', unsafe_allow_html=True)
-    regime_switch_prob = st.slider(
-        "Regime switch prob",
-        min_value=0.0,
-        max_value=0.50,
-        value=0.18,
-        step=0.01,
-    )
-    st.markdown("</div>", unsafe_allow_html=True)
-with controls[5]:
-    st.markdown('<div class="control-card">', unsafe_allow_html=True)
-    switching_cost = st.slider(
-        "Switching cost",
-        min_value=0.0,
-        max_value=0.20,
-        value=0.04,
-        step=0.01,
-    )
-    st.markdown("</div>", unsafe_allow_html=True)
-with controls[6]:
-    st.markdown('<div class="control-card">', unsafe_allow_html=True)
-    observation_noise = st.slider(
-        "Observation noise",
-        min_value=0.0,
-        max_value=0.40,
-        value=0.10,
-        step=0.01,
-    )
-    st.markdown("</div>", unsafe_allow_html=True)
-with controls[7]:
-    st.markdown('<div class="control-card">', unsafe_allow_html=True)
-    missing_feature_prob = st.slider(
-        "Missing feature prob",
-        min_value=0.0,
-        max_value=0.80,
-        value=0.22,
-        step=0.02,
-    )
-    st.markdown("</div>", unsafe_allow_html=True)
-controls_bottom = st.columns((1.2, 1.0), gap="small")
-with controls_bottom[0]:
-    st.markdown('<div class="control-card">', unsafe_allow_html=True)
-    multimodal_surface_scale = st.slider(
-        "Multimodal surface scale",
-        min_value=0.0,
-        max_value=0.80,
-        value=0.30,
-        step=0.05,
-    )
-    st.markdown("</div>", unsafe_allow_html=True)
-with controls_bottom[1]:
-    st.markdown(
-        """
-        <div class="control-card">
-            <div
-                style="font-weight: 700; color: #122126; margin-bottom: 0.2rem;"
-            >
-                Fixed defaults
-            </div>
-            <div style="color: #415157; font-size: 0.95rem; line-height: 1.35;">
-                Dynamic runs keep latent feature noise, parameter noise, and runtime noise
-                at their benchmark defaults so the controls stay focused on drift, sensing,
-                switching, and multimodal performance structure.
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-selector_table, trace_table = build_dynamic_dashboard_data(
-    n_episodes=n_episodes,
-    horizon=horizon,
-    drift_scale=drift_scale,
-    regime_switch_prob=regime_switch_prob,
-    switching_cost=switching_cost,
-    observation_noise=observation_noise,
-    missing_feature_prob=missing_feature_prob,
-    multimodal_surface_scale=multimodal_surface_scale,
-    seed=seed,
-)
+selector_table, trace_table, dynamic_metadata = load_dynamic_dashboard_data()
 selector_table = selector_table[selector_table["selector"].isin(SELECTOR_ORDER)].copy()
 trace_table = trace_table[trace_table["selector"].isin(SELECTOR_ORDER)].copy()
 
 seed_episode_sweep = load_dynamic_seed_episode_sweep()
+
+metadata_cols = st.columns(4, gap="small")
+metadata_cards = [
+    ("Artifact tag", str(dynamic_metadata.get("artifact_tag", "default"))),
+    (
+        "Seed / episodes",
+        f"{dynamic_metadata.get('seed', 'n/a')} / "
+        f"{dynamic_metadata.get('n_episodes', 'n/a')}",
+    ),
+    (
+        "Horizon / drift",
+        f"{dynamic_metadata.get('horizon', 'n/a')} / "
+        f"{dynamic_metadata.get('drift_scale', 0):.2f}",
+    ),
+    (
+        "Observation / multimodal",
+        f"{dynamic_metadata.get('observation_noise', 0):.2f} / "
+        f"{dynamic_metadata.get('multimodal_surface_scale', 0):.2f}",
+    ),
+]
+for column, (label, value) in zip(metadata_cols, metadata_cards, strict=True):
+    with column:
+        st.markdown(
+            f"""
+            <div class="control-card">
+                <div style="font-weight: 700; color: #122126; margin-bottom: 0.15rem;">{label}</div>
+                <div style="color: #415157; font-size: 0.98rem;">{value}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+st.caption(
+    "This dashboard is read-only with respect to evaluation. Refresh artifacts offline with "
+    "`scripts/run_dynamic_dashboard_data.py` and `scripts/run_dynamic_seed_episode_sweep.py`, "
+    "then use the dashboard only to inspect the stored results."
+)
 
 st.markdown(
     '<div class="section-title">Aggregate Dynamic Performance</div>',

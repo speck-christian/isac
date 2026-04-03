@@ -182,7 +182,7 @@ This style of rule is attractive because it is transparent, cheap at inference t
 
 \section{Baseline Selector Families}
 
-To support systematic comparison, the repository now evaluates several selector families under one shared train/test pipeline.
+To support systematic comparison, the repository evaluates a small set of baseline selector families under one shared train/test pipeline. In this report, a \emph{baseline} means a selector that is deliberately simple, easy to interpret, and valuable as a reference point even if it is not the most sophisticated model in the repository.
 
 \paragraph{Clustering selector.}
 The clustering-style baseline first partitions training instances into clusters and then assigns each cluster the empirically best portfolio member. If $a(i)$ denotes the cluster assignment of training instance $x_i$, then cluster $m$ receives label
@@ -200,17 +200,6 @@ y_i = \arg\min_{1 \le k \le K} c(x_i, \theta^{(k)})
 \]
 as a class label and trains a model to predict $y_i$ from the feature vector $\phi(x_i)$. The current lightweight implementation uses a nearest-centroid classifier as a simple stand-in for richer discriminative models.
 
-\paragraph{MLP selector.}
-A more expressive discriminative baseline is a feed-forward network
-\[
-f_\omega : \mathbb{R}^d \to \mathbb{R}^K
-\]
-that maps instance features to one logit per portfolio element. The selected action is
-\[
-\pi(\phi(x)) = \arg\max_{1 \le k \le K} f_\omega(\phi(x))_k.
-\]
-This model family is important because it can represent nonlinear decision boundaries in feature space while still remaining a direct predictor of the oracle best portfolio member.
-
 \paragraph{Regression selector.}
 The regression-style baseline fits one predictor per portfolio element:
 \[
@@ -221,9 +210,24 @@ The selected action is then
 \[
 \pi(\phi(x)) = \arg\min_{1 \le k \le K} \hat{c}_k(\phi(x)).
 \]
-This decomposition is useful because it predicts the whole performance table rather than only the best action.
+This decomposition is useful because it predicts the whole performance table rather than only the best action. It is a strong baseline because it aligns closely with the actual decision problem: estimate each candidate's cost, then choose the cheapest one.
 
-\paragraph{DGCAC-inspired selector.}
+\section{Learned Selector Families}
+
+Beyond the core baselines, the repository also studies richer learned selectors whose purpose is not merely to provide a floor for comparison, but to test whether additional representation learning, nonlinear discrimination, or temporally aware soft routing can outperform the simpler references.
+
+\paragraph{Multi-layer perceptron (MLP) selector.}
+A more expressive discriminative model is a feed-forward multi-layer perceptron (MLP)
+\[
+f_\omega : \mathbb{R}^d \to \mathbb{R}^K
+\]
+that maps instance features to one logit per portfolio element. The selected action is
+\[
+\pi(\phi(x)) = \arg\max_{1 \le k \le K} f_\omega(\phi(x))_k.
+\]
+This model family is important because it can represent nonlinear decision boundaries in feature space while still remaining a direct predictor of the oracle best portfolio member.
+
+\paragraph{Deep graph clustering for algorithm configuration (DGCAC)-inspired selector.}
 A natural modern extension is to learn a representation before clustering. Let $e_\psi(\phi(x)) \in \mathbb{R}^q$ denote a learned embedding of the observable feature vector. The routing pipeline becomes
 \[
 \phi(x) \xrightarrow{\;e_\psi\;} z(x) \in \mathbb{R}^q
@@ -267,7 +271,7 @@ The current repository uses a simple but important evaluation discipline. A sele
 
 \section{Next Research Approximation}
 
-The first modern paper targeted by the repository is the deep-clustering approach of Song et al.\ on instance-specific algorithm configuration. The full paper uses graph-based instance representations and unsupervised deep clustering. The repository does not yet include graph encoders, but it now includes a DGCAC-inspired selector that preserves the core structural idea:
+The first modern paper targeted by the repository is the deep-clustering approach of Song et al.\ on instance-specific algorithm configuration. The full paper uses graph-based instance representations and unsupervised deep clustering. The repository does not yet include graph encoders, but it now includes a deep graph clustering for algorithm configuration (DGCAC)-inspired selector that preserves the core structural idea:
 \begin{enumerate}[leftmargin=2em]
 \item learn a compact latent representation,
 \item cluster instances in the latent space,
@@ -275,6 +279,86 @@ The first modern paper targeted by the repository is the deep-clustering approac
 \end{enumerate}
 
 This staged approximation is deliberate. It keeps the benchmark lightweight while still moving the selector family in the direction suggested by contemporary ISAC research.
+
+\section{Non-Baseline Selector Models}
+
+The repository now contains several selectors that are more than simple benchmark baselines. These models are the main research objects in the codebase because they attempt to learn richer decision structure than nearest-centroid classification, plain regression, or hard cluster lookup. The purpose of this section is to describe their internal logic in enough detail that the reader can understand what each model is trying to capture and why one might expect it to outperform simpler baselines under the right benchmark conditions.
+
+\subsection{MLP Selector}
+
+The MLP selector is the repository's main direct nonlinear discriminative model. Its basic role is to learn a map
+\[
+f_\omega : \mathbb{R}^d \to \mathbb{R}^{N_s},
+\]
+where $d$ is the observable feature dimension and $N_s$ is the selector's learned portfolio size cap. Each output coordinate corresponds to one learned parameter prototype in that selector's own portfolio. The final action is chosen by
+\[
+\pi(\phi(x)) = \arg\max_{1 \le s \le N_s} f_\omega(\phi(x))_s.
+\]
+
+The important modeling choice is that the MLP does not try to model the full runtime table explicitly. Instead, it learns a direct partition of feature space into action regions. This makes it a useful stress test for whether the benchmark can be solved by a powerful but still fairly generic feed-forward discriminative model.
+
+In the current implementation, the MLP selector uses PyTorch, validation-based model selection, and a cost-sensitive training criterion so that the optimization target is closer to downstream regret than to pure classification accuracy. Conceptually, the model is trying to answer the question
+\begin{quote}
+given the current observable state, which learned parameter prototype should be selected?
+\end{quote}
+This is attractive when the best-action surface is highly nonlinear but still recoverable from current observations alone. It is less attractive when the problem becomes strongly history-dependent or when switching costs matter enough that a purely local decision rule becomes myopic.
+
+\subsection{DGCAC-Inspired Selector}
+
+The DGCAC-inspired selector is the repository's main representation-learning model. It is motivated by deep-clustering approaches to instance-specific algorithm configuration, especially settings in which the raw observed feature space is not assumed to be the right geometry for routing. The selector first learns an embedding
+\[
+z_t = e_\psi(h_t) \in \mathbb{R}^q,
+\]
+where $h_t$ is a feature vector or short temporal context summary and $q$ is the latent dimension. The latent representation is then used for soft cluster assignment. If the cluster centers are $m_1,\dots,m_M$, then the routing weights take the form
+\[
+w_j(z_t) \propto \exp\!\left(-\frac{\lVert z_t - m_j\rVert_2^2}{\tau}\right),
+\]
+with temperature parameter $\tau > 0$ controlling how soft the assignment is.
+
+These routing weights are used to aggregate cluster-conditioned runtime estimates, so the final action is chosen by minimizing an expected predicted cost rather than committing immediately to a single cluster label. In prose, the selector tries to do three things at once:
+\begin{enumerate}[leftmargin=2em]
+\item denoise and compress the observation into a latent state,
+\item place that latent state near semantically similar training states,
+\item use nearby clusters to infer which portfolio element should be preferred.
+\end{enumerate}
+
+In the current repository, the model is still a lightweight approximation rather than a full reproduction of graph-based DGCAC. It uses feature-vector inputs rather than graph encoders, and its embedding stage is trained with a denoising-style objective together with decision-oriented heads. Even so, it already captures the main intuition behind modern deep ISAC systems: routing quality depends on representation quality.
+
+\subsection{Temporal Soft Cluster ISAC}
+
+Temporal Soft Cluster ISAC is currently the most ambitious non-baseline selector in the repository and the strongest model in the enriched dynamic benchmark. Its design starts from a simple observation: in the dynamic simulator, the correct action depends not only on the current partially observed feature vector, but also on recent history, latent drift, and the penalty for switching actions too aggressively.
+
+Accordingly, the model does not cluster the raw current observation alone. Instead, it builds a temporalized state summary
+\[
+g_t = \Gamma(o_{t-k+1}, \dots, o_t),
+\]
+where $o_t$ is the current observation and $\Gamma$ is a handcrafted temporal featurization that includes current observation terms, running summaries, and short-horizon trend information. These temporal descriptors are then softly clustered rather than hard-clustered. If $u_1,\dots,u_M$ denote temporal cluster prototypes, the selector computes membership weights
+\[
+\alpha_j(g_t) \propto \exp\!\left(-\frac{\lVert g_t - u_j\rVert_2^2}{\tau}\right).
+\]
+
+Each cluster is equipped with a local runtime model or local performance summary over the selector's learned portfolio. The model then forms a weighted predicted cost for each candidate parameter set,
+\[
+\hat{c}_s(g_t) = \sum_{j=1}^M \alpha_j(g_t)\,\hat{c}_{j,s}(g_t),
+\]
+and selects the action that minimizes this quantity after including a switching-aware adjustment. If the previous action was $a_{t-1}$, the deployed decision rule is conceptually
+\[
+a_t =
+\arg\min_s
+\left(
+\hat{c}_s(g_t) + \lambda_{\mathrm{switch}}\mathbf{1}\{s \neq a_{t-1}\}
+\right).
+\]
+
+This model is important because it is the first selector in the repository that explicitly combines all of the following:
+\begin{itemize}[leftmargin=2em]
+\item temporal context,
+\item soft routing rather than hard assignment,
+\item local specialization,
+\item switching-aware action choice.
+\end{itemize}
+
+Those ingredients align closely with the current dynamic simulator, which includes partial observability, regime changes, multimodal performance structure, and explicit switching costs. The model's recent performance improvements suggest that the combination of temporal context and soft local specialization is materially more useful than either ingredient alone.
 
 \section{Separability Diagnostics}
 
@@ -385,18 +469,57 @@ Privileged Classifier & 0.078971 & 0.013656 & 0.092627 & 0.318750 \\
 
 This dynamic result is consistent with the current simulator design: once partial observability, drift, switching costs, and multimodal quality surfaces are all active, the problem rewards \emph{history-aware soft routing}. The new temporal soft-cluster model improves on both the plain regressor and the original hard Cluster ISAC by reducing switching cost without sacrificing local specialization.
 
+\subsection{Concrete Algorithmic Benchmark}
+
+The repository now also includes a more faithful algorithm-configuration benchmark in which selectors do not compete against an abstract latent runtime surface. Instead, they configure a concrete adaptive forecasting algorithm with three tunable parameters:
+\[
+\alpha \quad \text{(level adaptation)}, \qquad
+\beta \quad \text{(trend adaptation)}, \qquad
+g \quad \text{(volatility gate)}.
+\]
+In this setting, an episode is a drifting observed stream generated from latent regimes with different trend, volatility, mean reversion, and shock behavior. Offline portfolio construction is performed by optimizing this concrete algorithm on diverse training episodes, collecting strong incumbents, and compressing them into a capped portfolio.
+
+This benchmark matters because it better matches the intended project goal: given observed feature data, learn a small set of strong parameter settings for one algorithm and then infer which setting to use online. The repository currently supports two offline portfolio-construction modes for this benchmark:
+\begin{itemize}[leftmargin=2em]
+\item a lightweight random-search builder for fast local experimentation,
+\item an optional SMAC3-driven builder for optimizer-based offline portfolio discovery.
+\end{itemize}
+
+The resulting selector evaluation path is now structurally closer to real ISAC usage than the original synthetic distance-to-ideal benchmark, since the portfolio is derived from actual algorithm optimization rather than only from latent ideal parameter vectors.
+
+\paragraph{SMAC-backed representative snapshot.}
+With a smaller but fully optimizer-backed run using horizon 12, four training episodes, four test episodes, and 12 SMAC trials per episode, the current ranking on average regret is:
+
+\begin{center}
+\begin{tabular}{lccc}
+\toprule
+Selector & Portfolio source & Portfolio size & Average regret \\
+\midrule
+Temporal Soft Cluster ISAC & SMAC & 4 & 0.006280 \\
+DGCAC-inspired & SMAC & 4 & 0.008318 \\
+Cluster ISAC & SMAC & 4 & 0.010955 \\
+Privileged Classifier & SMAC & 4 & 0.012048 \\
+Regressor & SMAC & 4 & 0.012764 \\
+MLP Selector & SMAC & 4 & 0.018369 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Even though this is still a modest benchmark snapshot rather than a large offline study, it is already informative: once the portfolio comes from real optimizer-discovered incumbents rather than purely synthetic prototype derivation, the temporal soft-cluster selector remains the strongest method among the tested selectors, and the improved DGCAC-inspired selector now emerges as the second-best method on this concrete algorithmic task. This is encouraging because it suggests that the selector's advantage is not purely an artifact of the older latent-ideal benchmark formulation.
+
 \section{Current Takeaway}
 
 At the moment, the benchmark supports two different short-run conclusions:
 \begin{itemize}[leftmargin=2em]
 \item in the static learned-portfolio setting, Cluster ISAC is the current regret leader,
 \item in the enriched dynamic setting, Temporal Soft Cluster ISAC is now the strongest model on total penalty,
-\item the regressor and the original Cluster ISAC remain the strongest simpler baselines and are now very close behind the new dynamic leader,
-\item MLP and DGCAC-inspired remain competitive, but neither is yet the clear dominant model across both regimes,
+\item in the concrete SMAC-backed algorithmic benchmark, Temporal Soft Cluster ISAC remains the strongest selector and DGCAC-inspired is now the next best model,
+\item the simpler regressors and centroid-style baselines are still useful references, but they are no longer the strongest models once the problem is framed as offline optimizer-driven portfolio construction plus online routing,
+\item MLP remains a meaningful neural baseline, but it is not yet competitive with the strongest structured selectors on the current algorithmic setup,
 \item the privileged classifier remains useful as a supervision upper-bound reference, but it is not the realistic deployment winner.
 \end{itemize}
 
-This is a useful outcome for the project. It suggests that allowing each selector to derive its own parameter portfolio materially changes the comparison, and it reinforces the need to distinguish static one-shot selection from dynamic partially observed control. It also provides a clearer research direction: dynamic ISAC benefits materially from temporal context and soft routing, whereas the static benchmark still rewards simpler partition-based selectors.
+This is a useful outcome for the project. It suggests that allowing each selector to derive its own parameter portfolio materially changes the comparison, and it reinforces the value of evaluating selectors on a concrete algorithm rather than only on an abstract latent runtime surface. The present results also sharpen the design lesson: structured temporal routing with portfolio awareness is more promising than pure label prediction once the offline portfolio is built from real parameter search.
 
 \chapter{Path to Real Data}
 

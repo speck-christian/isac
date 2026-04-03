@@ -6,6 +6,7 @@ from isac.selectors.clustering import KMeansClusterSelector
 from isac.selectors.deep_clustering import DeepClusterEmbeddingSelector
 from isac.selectors.mlp import MLPClassifierSelector
 from isac.selectors.regression import LinearRuntimeRegressorSelector
+from isac.selectors.smac_portfolio import RandomSearchPortfolioBuilder, SMAC3PortfolioBuilder
 from isac.selectors.temporal_moe import TemporalMixtureOfExpertsSelector
 from isac.selectors.temporal_soft_cluster import TemporalSoftClusterSelector
 
@@ -15,7 +16,9 @@ __all__ = [
     "LinearRuntimeRegressorSelector",
     "MLPClassifierSelector",
     "NearestCentroidClassifierSelector",
+    "RandomSearchPortfolioBuilder",
     "Selector",
+    "SMAC3PortfolioBuilder",
     "TemporalMixtureOfExpertsSelector",
     "TemporalSoftClusterSelector",
 ]

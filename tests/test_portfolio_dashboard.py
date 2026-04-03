@@ -23,12 +23,13 @@ def test_evaluate_selectors_returns_expected_tables() -> None:
         "Regressor",
         "Temporal MoE",
     }
-    expected_action_rows = 1 + 1 + 12 + 6 * 12
+    expected_action_rows = 12 + 1 + 12 + 6 * 12
     assert len(action_table) == expected_action_rows
     assert len(instance_table) == 120
     assert "regret_cluster_isac" in instance_table.columns
     assert "regret_dgcac-inspired" in instance_table.columns
     assert "selected_param_1_mlp_selector" in instance_table.columns
+    assert "selected_param_1_oracle" in instance_table.columns
 
 
 def test_make_portfolio_table_matches_number_of_configs() -> None:

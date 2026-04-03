@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 
 from isac import make
+from isac.core import AlgorithmicPortfolioBenchmark
 from isac.core.synthetic import SyntheticBenchmark
 
 
@@ -87,3 +88,38 @@ def test_dynamic_env_observation_is_partially_observed() -> None:
     assert current is not None
     assert not np.allclose(observation, current.latent_features)
     assert np.any(current.observation_mask < 1.0)
+
+
+def test_algorithmic_benchmark_produces_diverse_config_losses() -> None:
+    benchmark = AlgorithmicPortfolioBenchmark(seed=12, horizon=10)
+    episode = benchmark.sample_episode()
+    losses = benchmark.evaluate_portfolio(
+        episode,
+        np.stack([config.values for config in benchmark.portfolio], axis=0),
+    )
+
+    assert losses.shape == (benchmark.n_configs,)
+    assert float(losses.std()) > 0.0
+
+
+def test_algorithmic_env_returns_registered_environment() -> None:
+    env = make("isac-algorithmic-v0", seed=13, horizon=8)
+    observation, info = env.reset()
+
+    assert observation.shape == (env.n_features,)
+    assert info["algorithm"] == "adaptive_forecaster"
+    assert info["parameter_names"] == ["alpha", "beta", "gate"]
+
+
+def test_algorithmic_env_step_returns_loss_relative_reward() -> None:
+    env = make("isac-algorithmic-v0", seed=14, horizon=6)
+    env.reset()
+    current = env.current_state
+    assert current is not None
+
+    _, reward, terminated, truncated, info = env.step(0)
+
+    assert isinstance(info["loss"], float)
+    assert np.isclose(reward, -(info["loss"] - info["best_loss"]))
+    assert terminated is False
+    assert truncated is False

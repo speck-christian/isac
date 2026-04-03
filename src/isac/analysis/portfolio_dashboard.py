@@ -6,6 +6,9 @@ import numpy as np
 import pandas as pd
 
 from isac.core import (
+    AlgorithmicEpisode,
+    AlgorithmicPortfolioBenchmark,
+    AlgorithmicState,
     DynamicPortfolioBenchmark,
     DynamicPortfolioEpisode,
     DynamicPortfolioState,
@@ -19,9 +22,12 @@ from isac.selectors import (
     LinearRuntimeRegressorSelector,
     MLPClassifierSelector,
     NearestCentroidClassifierSelector,
+    RandomSearchPortfolioBuilder,
+    SMAC3PortfolioBuilder,
     TemporalMixtureOfExpertsSelector,
     TemporalSoftClusterSelector,
 )
+from isac.selectors.portfolio_learning import assign_to_portfolio, derive_kmeans_portfolio
 
 
 def _stack_features(instances: list[PortfolioInstance]) -> np.ndarray:
@@ -60,6 +66,14 @@ def _flatten_episode_states(episodes: list[DynamicPortfolioEpisode]) -> list[Dyn
     return [state for episode in episodes for state in episode.states]
 
 
+def _flatten_algorithmic_states(episodes: list[AlgorithmicEpisode]) -> list[AlgorithmicState]:
+    return [state for episode in episodes for state in episode.states]
+
+
+def _stack_algorithmic_features(states: list[AlgorithmicState]) -> np.ndarray:
+    return np.stack([state.features for state in states], axis=0)
+
+
 def _normalize_splits(
     train_instances: list[PortfolioInstance],
     test_instances: list[PortfolioInstance],
@@ -85,6 +99,25 @@ def _normalize_dynamic_splits(
     test_states = _flatten_episode_states(test_episodes)
     train_features = _stack_dynamic_features(train_states)
     test_features = _stack_dynamic_features(test_states)
+    normalizer = ZScoreNormalizer.fit(train_features)
+    normalized_train = normalizer.transform(train_features)
+    normalized_test = normalizer.transform(test_features)
+
+    for state, normalized_features in zip(train_states, normalized_train, strict=True):
+        state.features = normalized_features
+    for state, normalized_features in zip(test_states, normalized_test, strict=True):
+        state.features = normalized_features
+    return train_episodes, test_episodes
+
+
+def _normalize_algorithmic_splits(
+    train_episodes: list[AlgorithmicEpisode],
+    test_episodes: list[AlgorithmicEpisode],
+) -> tuple[list[AlgorithmicEpisode], list[AlgorithmicEpisode]]:
+    train_states = _flatten_algorithmic_states(train_episodes)
+    test_states = _flatten_algorithmic_states(test_episodes)
+    train_features = _stack_algorithmic_features(train_states)
+    test_features = _stack_algorithmic_features(test_states)
     normalizer = ZScoreNormalizer.fit(train_features)
     normalized_train = normalizer.transform(train_features)
     normalized_test = normalizer.transform(test_features)
@@ -200,6 +233,12 @@ def evaluate_selectors(
     instance_table = make_instance_table(test_instances, local_benchmark)
     embedding_table = make_feature_embedding_table(test_instances)
 
+    oracle_portfolio = derive_kmeans_portfolio(
+        train_ideal_params,
+        max_portfolio_size=12,
+        seed=seed,
+    )
+    oracle_assignments = assign_to_portfolio(_stack_ideal_params(test_instances), oracle_portfolio)
     global_best_param = train_ideal_params.mean(axis=0)
     random_portfolio = train_ideal_params[
         local_benchmark.rng.choice(
@@ -256,13 +295,9 @@ def evaluate_selectors(
 
     summary_rows = []
     action_rows = []
-    oracle_selected_params = np.stack(
-        [instance.ideal_params for instance in test_instances],
-        axis=0,
-    )
     selectors["Oracle"] = (
-        np.zeros(n_instances, dtype=np.int64),
-        np.zeros((1, train_ideal_params.shape[1])),
+        oracle_assignments,
+        oracle_portfolio,
     )
     selectors["Global Best"] = (
         np.zeros(n_instances, dtype=np.int64),
@@ -281,32 +316,23 @@ def evaluate_selectors(
     ]
     for selector_name in selector_order:
         selected_configs, selector_portfolio = selectors[selector_name]
-        if selector_name == "Oracle":
-            selected_runtimes = np.array(
-                [local_benchmark.optimal_runtime(instance) for instance in test_instances],
-                dtype=np.float64,
-            )
-            best_runtimes = selected_runtimes.copy()
-            selected_param_values = oracle_selected_params
-            histogram = np.array([n_instances], dtype=np.int64)
-        else:
-            selected_param_values = selector_portfolio[selected_configs]
-            selected_runtimes = np.array(
-                [
-                    local_benchmark.evaluate_parameters(instance, selected_param_values[index])
-                    for index, instance in enumerate(test_instances)
-                ],
-                dtype=np.float64,
-            )
-            portfolio_runtimes = np.stack(
-                [
-                    local_benchmark.evaluate_portfolio(instance, selector_portfolio)
-                    for instance in test_instances
-                ],
-                axis=0,
-            )
-            best_runtimes = portfolio_runtimes.min(axis=1)
-            histogram = np.bincount(selected_configs, minlength=len(selector_portfolio))
+        selected_param_values = selector_portfolio[selected_configs]
+        selected_runtimes = np.array(
+            [
+                local_benchmark.evaluate_parameters(instance, selected_param_values[index])
+                for index, instance in enumerate(test_instances)
+            ],
+            dtype=np.float64,
+        )
+        portfolio_runtimes = np.stack(
+            [
+                local_benchmark.evaluate_portfolio(instance, selector_portfolio)
+                for instance in test_instances
+            ],
+            axis=0,
+        )
+        best_runtimes = portfolio_runtimes.min(axis=1)
+        histogram = np.bincount(selected_configs, minlength=len(selector_portfolio))
         oracle_runtimes = np.array(
             [local_benchmark.optimal_runtime(instance) for instance in test_instances],
             dtype=np.float64,
@@ -326,31 +352,19 @@ def evaluate_selectors(
             action_rows.append(
                 {
                     "selector": selector_name,
-                    "config_name": "oracle" if selector_name == "Oracle" else f"s{config_index}",
-                    "param_1": (
-                        float("nan")
-                        if selector_name == "Oracle"
-                        else float(selector_portfolio[config_index, 0])
-                    ),
+                    "config_name": f"s{config_index}",
+                    "param_1": float(selector_portfolio[config_index, 0]),
                     "param_2": (
-                        float("nan")
-                        if selector_name == "Oracle"
-                        else (
-                            float(selector_portfolio[config_index, 1])
-                            if selector_portfolio.shape[1] > 1
-                            else 0.0
-                        )
+                        float(selector_portfolio[config_index, 1])
+                        if selector_portfolio.shape[1] > 1
+                        else 0.0
                     ),
                     "count": int(count),
                 }
             )
         selector_key = _selector_key(selector_name)
         instance_table[f"choice_{selector_key}"] = selected_configs
-        instance_table[f"choice_name_{selector_key}"] = (
-            ["oracle"] * n_instances
-            if selector_name == "Oracle"
-            else [f"s{index}" for index in selected_configs]
-        )
+        instance_table[f"choice_name_{selector_key}"] = [f"s{index}" for index in selected_configs]
         instance_table[f"selected_param_1_{selector_key}"] = selected_param_values[:, 0]
         instance_table[f"selected_param_2_{selector_key}"] = (
             selected_param_values[:, 1] if selected_param_values.shape[1] > 1 else 0.0
@@ -397,6 +411,11 @@ def evaluate_dynamic_selectors(
     train_runtimes = _stack_dynamic_runtimes(train_states)
     train_best_configs = _stack_dynamic_best_configs(train_states)
     train_ideal_params = _stack_dynamic_ideal_params(train_states)
+    oracle_portfolio = derive_kmeans_portfolio(
+        train_ideal_params,
+        max_portfolio_size=12,
+        seed=seed,
+    )
     global_best_param = train_ideal_params.mean(axis=0)
     random_portfolio = train_ideal_params[
         local_benchmark.rng.choice(
@@ -478,11 +497,12 @@ def evaluate_dynamic_selectors(
             previous_action: int | None = None
             episode_features = _stack_dynamic_features(episode.states)
             if selector_name == "Oracle":
-                episode_actions = np.zeros(len(episode.states), dtype=np.int64)
-                selector_portfolio = np.stack(
+                selector_portfolio = oracle_portfolio
+                episode_ideal_params = np.stack(
                     [state.ideal_params for state in episode.states],
                     axis=0,
                 )
+                episode_actions = assign_to_portfolio(episode_ideal_params, selector_portfolio)
             elif selector_name == "Global Best":
                 episode_actions = np.zeros(len(episode.states), dtype=np.int64)
                 selector_portfolio = np.repeat(global_best_param[None, :], repeats=1, axis=0)
@@ -504,18 +524,13 @@ def evaluate_dynamic_selectors(
                     episode_actions = selector_model.predict(episode_features)
 
             for state, action in zip(episode.states, episode_actions, strict=True):
-                if selector_name == "Oracle":
-                    selected_runtime = local_benchmark.optimal_runtime(state)
-                    best_runtime = selected_runtime
-                    selected_params = state.ideal_params
-                else:
-                    selected_params = selector_portfolio[int(action)]
-                    selected_runtime = float(
-                        local_benchmark.evaluate_parameters(state, selected_params)
-                    )
-                    best_runtime = float(
-                        local_benchmark.evaluate_portfolio(state, selector_portfolio).min()
-                    )
+                selected_params = selector_portfolio[int(action)]
+                selected_runtime = float(
+                    local_benchmark.evaluate_parameters(state, selected_params)
+                )
+                best_runtime = float(
+                    local_benchmark.evaluate_portfolio(state, selector_portfolio).min()
+                )
                 switch_cost = 0.0
                 if previous_action is not None and int(action) != previous_action:
                     switch_cost = local_benchmark.switching_cost
@@ -566,3 +581,163 @@ def evaluate_dynamic_selectors(
         )
 
     return pd.DataFrame(summary_rows), pd.DataFrame(trace_rows)
+
+
+def _algorithmic_runtime_sequences(
+    benchmark: AlgorithmicPortfolioBenchmark,
+    episodes: list[AlgorithmicEpisode],
+    portfolio_values: np.ndarray,
+) -> list[np.ndarray]:
+    runtime_sequences: list[np.ndarray] = []
+    for episode in episodes:
+        losses = np.stack(
+            [benchmark.rollout_parameters(episode, params) for params in portfolio_values],
+            axis=1,
+        )
+        runtime_sequences.append(losses.astype(np.float64))
+    return runtime_sequences
+
+
+def evaluate_algorithmic_selectors(
+    benchmark: AlgorithmicPortfolioBenchmark,
+    n_episodes: int,
+    seed: int | None = None,
+    *,
+    portfolio_source: str = "random_search",
+    portfolio_trials: int = 48,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Evaluate selectors on the concrete algorithmic benchmark."""
+
+    local_benchmark = AlgorithmicPortfolioBenchmark(
+        horizon=benchmark.horizon,
+        n_features=benchmark.n_features,
+        observation_noise=benchmark.observation_noise,
+        regime_switch_prob=benchmark.regime_switch_prob,
+        seed=seed if seed is not None else benchmark.seed,
+    )
+    train_episodes = [local_benchmark.sample_episode() for _ in range(n_episodes)]
+    test_episodes = [local_benchmark.sample_episode() for _ in range(n_episodes)]
+    train_episodes, test_episodes = _normalize_algorithmic_splits(train_episodes, test_episodes)
+
+    model_rows: list[dict[str, float | str]] = []
+    trace_rows: list[dict[str, float | int | str]] = []
+
+    selector_specs = [
+        ("Privileged Classifier", NearestCentroidClassifierSelector),
+        ("Regressor", LinearRuntimeRegressorSelector),
+        ("MLP Selector", MLPClassifierSelector),
+        ("DGCAC-inspired", DeepClusterEmbeddingSelector),
+        ("Cluster ISAC", KMeansClusterSelector),
+        ("Temporal Soft Cluster ISAC", TemporalSoftClusterSelector),
+    ]
+
+    for selector_index, (_name, selector_cls) in enumerate(selector_specs):
+        selector_seed = (seed or 0) + selector_index
+        if portfolio_source == "smac":
+            builder = SMAC3PortfolioBuilder(
+                benchmark=local_benchmark,
+                n_trials=portfolio_trials,
+                max_portfolio_size=12,
+                seed=selector_seed,
+            )
+        elif portfolio_source == "random_search":
+            builder = RandomSearchPortfolioBuilder(
+                benchmark=local_benchmark,
+                n_trials=portfolio_trials,
+                max_portfolio_size=12,
+                seed=selector_seed,
+            )
+        else:
+            raise ValueError("portfolio_source must be 'random_search' or 'smac'.")
+
+        selector_portfolio = builder.build_portfolio(train_episodes)
+        train_runtime_sequences = _algorithmic_runtime_sequences(
+            local_benchmark,
+            train_episodes,
+            selector_portfolio,
+        )
+        train_states = _flatten_algorithmic_states(train_episodes)
+        train_features = _stack_algorithmic_features(train_states)
+        train_runtimes = np.concatenate(train_runtime_sequences, axis=0)
+        train_best_configs = train_runtimes.argmin(axis=1).astype(np.int64)
+
+        selector = selector_cls(
+            n_configs=len(selector_portfolio),
+            max_portfolio_size=len(selector_portfolio),
+            seed=selector_seed,
+        )
+        if hasattr(selector, "fit_algorithmic_with_portfolio"):
+            selector.fit_algorithmic_with_portfolio(
+                train_episodes,
+                portfolio_values=selector_portfolio,
+                runtime_sequences=train_runtime_sequences,
+            )
+        else:
+            selector.fit(
+                train_features,
+                train_runtimes,
+                train_best_configs,
+                ideal_params=None,
+            )
+            selector.portfolio_values_ = selector_portfolio
+
+        total_loss = 0.0
+        total_regret = 0.0
+        step_count = 0
+        for episode_id, episode in enumerate(test_episodes):
+            portfolio_step_losses = _algorithmic_runtime_sequences(
+                local_benchmark,
+                [episode],
+                selector_portfolio,
+            )[0]
+            episode_features = np.stack([state.features for state in episode.states], axis=0)
+            if hasattr(selector, "predict_episode"):
+                episode_actions = selector.predict_episode(episode_features, switching_cost=0.0)
+            else:
+                episode_actions = selector.predict(episode_features)
+
+            algorithm_state = local_benchmark._initialize_algorithm_state(episode)
+            for state_index, (state, action) in enumerate(
+                zip(episode.states, episode_actions, strict=True)
+            ):
+                parameter_values = selector_portfolio[int(action)]
+                loss, algorithm_state = local_benchmark.algorithm_step(
+                    algorithm_state,
+                    state,
+                    parameter_values,
+                )
+                best_loss = float(portfolio_step_losses[state_index].min())
+                total_loss += float(loss)
+                total_regret += float(loss - best_loss)
+                step_count += 1
+                trace_rows.append(
+                    {
+                        "selector": selector.name,
+                        "episode_id": episode_id,
+                        "timestep": state.timestep,
+                        "regime_id": state.regime_id,
+                        "action": int(action),
+                        "loss": float(loss),
+                        "best_loss": best_loss,
+                        "regret": float(loss - best_loss),
+                        "selected_param_1": float(parameter_values[0]),
+                        "selected_param_2": (
+                            float(parameter_values[1]) if len(parameter_values) > 1 else 0.0
+                        ),
+                        "selected_param_3": (
+                            float(parameter_values[2]) if len(parameter_values) > 2 else 0.0
+                        ),
+                    }
+                )
+
+        model_rows.append(
+            {
+                "selector": selector.name,
+                "portfolio_source": portfolio_source,
+                "portfolio_size": int(len(selector_portfolio)),
+                "avg_loss": total_loss / step_count,
+                "avg_regret": total_regret / step_count,
+            }
+        )
+
+    return pd.DataFrame(model_rows), pd.DataFrame(trace_rows)

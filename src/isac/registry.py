@@ -24,8 +24,10 @@ def make(env_id: str, **kwargs: object) -> object:
     return factory(**kwargs)
 
 
+from isac.envs.isac_algorithmic import ISACAlgorithmicEnv  # noqa: E402
 from isac.envs.isac_dynamic import ISACDynamicEnv  # noqa: E402
 from isac.envs.isac_simple import ISACSimpleEnv  # noqa: E402
 
 register("isac-simple-v0", ISACSimpleEnv)
 register("isac-dynamic-v0", ISACDynamicEnv)
+register("isac-algorithmic-v0", ISACAlgorithmicEnv)

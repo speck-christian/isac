@@ -77,8 +77,21 @@ The dashboard now compares several ISAC-style selector families on a held-out te
 The repo now includes two environment families:
 - `isac-simple-v0`: one-shot contextual selection across independent instances
 - `isac-dynamic-v0`: evolving instances with regime drift and switching cost for online reconfiguration
+- `isac-algorithmic-v0`: a concrete adaptive forecasting algorithm with tunable parameters, drifting stream features, and online parameter selection
 - `Regressor`: per-configuration linear runtime prediction with argmin selection
 - `Global Best`, `Random`, and `Oracle` reference baselines
+
+For offline parameter-search-driven portfolio construction, the repo now also includes an optional `SMAC3PortfolioBuilder` in [src/isac/selectors/smac_portfolio.py](/Users/christianspeck/projects/isac/src/isac/selectors/smac_portfolio.py). Install the extra with:
+
+```bash
+pip install -e ".[smac]"
+```
+
+This builder is intended for the more faithful ISAC workflow:
+- optimize the concrete algorithm on diverse training episodes with SMAC3
+- collect per-episode incumbents
+- compress those incumbents into a capped portfolio
+- train selectors to route online observations to one of those learned configurations
 
 ## Noise sweep
 

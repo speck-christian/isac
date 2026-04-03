@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import torch
 
+from isac.core import AlgorithmicEpisode
 from isac.selectors.portfolio_learning import assign_to_portfolio
 
 
@@ -18,6 +19,8 @@ class KMeansClusterSelector:
     max_portfolio_size: int = 12
     n_clusters: int | None = None
     max_iter: int = 25
+    history_blend: float = 0.72
+    trend_blend: float = 0.45
     seed: int | None = None
     name: str = "Cluster ISAC"
     centers_: torch.Tensor = field(init=False)
@@ -92,8 +95,60 @@ class KMeansClusterSelector:
         self.cluster_best_configs_ = torch.tensor(cluster_best_configs, dtype=torch.long)
         return self
 
+    def fit_algorithmic_with_portfolio(
+        self,
+        episodes: list[AlgorithmicEpisode],
+        *,
+        portfolio_values: np.ndarray,
+        runtime_sequences: list[np.ndarray],
+    ) -> KMeansClusterSelector:
+        temporal_features: list[np.ndarray] = []
+        runtime_rows: list[np.ndarray] = []
+        for episode, runtime_sequence in zip(episodes, runtime_sequences, strict=True):
+            episode_features = np.stack([state.features for state in episode.states], axis=0)
+            temporal_features.extend(self._temporalize_episode_features(episode_features))
+            runtime_rows.extend(runtime_sequence)
+
+        runtime_array = np.stack(runtime_rows, axis=0).astype(np.float64)
+        best_configs = runtime_array.argmin(axis=1).astype(np.int64)
+        self.portfolio_values_ = np.asarray(portfolio_values, dtype=np.float64)
+        self.fit(
+            np.stack(temporal_features, axis=0),
+            runtime_array,
+            best_configs,
+            ideal_params=None,
+        )
+        self.portfolio_values_ = np.asarray(portfolio_values, dtype=np.float64)
+        return self
+
     def predict(self, features: np.ndarray) -> np.ndarray:
         feature_tensor = torch.as_tensor(features, dtype=torch.float32)
         distances = torch.cdist(feature_tensor, self.centers_, p=2) ** 2
         nearest_clusters = distances.argmin(dim=1)
         return self.cluster_best_configs_[nearest_clusters].cpu().numpy().astype(np.int64)
+
+    def predict_episode(
+        self,
+        episode_features: np.ndarray,
+        *,
+        switching_cost: float = 0.0,
+    ) -> np.ndarray:
+        del switching_cost
+        temporal_features = self._temporalize_episode_features(np.asarray(episode_features))
+        return self.predict(temporal_features)
+
+    def _temporalize_episode_features(self, episode_features: np.ndarray) -> np.ndarray:
+        history = np.zeros(episode_features.shape[1], dtype=np.float64)
+        previous = np.zeros(episode_features.shape[1], dtype=np.float64)
+        contextual_rows: list[np.ndarray] = []
+        for timestep, current in enumerate(episode_features):
+            current = np.asarray(current, dtype=np.float64)
+            if timestep == 0:
+                delta = np.zeros_like(current)
+            else:
+                delta = current - previous
+            history = self.history_blend * history + (1.0 - self.history_blend) * current
+            trend = self.trend_blend * delta + (1.0 - self.trend_blend) * (current - history)
+            contextual_rows.append(np.concatenate([current, history, delta, trend], axis=0))
+            previous = current
+        return np.stack(contextual_rows, axis=0)

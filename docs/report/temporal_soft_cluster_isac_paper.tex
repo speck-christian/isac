@@ -1,0 +1,284 @@
+\documentclass[conference]{IEEEtran}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{multirow}
+
+\title{Temporal Soft Cluster ISAC:\\A Dynamic Instance-Specific Algorithm Configuration Policy for Partially Observed Drift}
+
+\author{
+\IEEEauthorblockN{Christian Speck}
+\IEEEauthorblockA{ISAC Project Repository\\
+Email: christian@example.com}
+}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Instance-Specific Algorithm Configuration (ISAC) is classically framed as a static routing problem: instances are represented by features, clustered offline, and assigned one of a finite set of preselected configurations. That formulation becomes insufficient when the underlying instance evolves over time, observations are partial and noisy, and switching configurations carries an explicit penalty. This paper presents Temporal Soft Cluster ISAC, a dynamic selector that extends the clustering intuition of ISAC to partially observed nonstationary environments. The method constructs temporalized state summaries from recent observations, performs soft cluster assignment rather than hard routing, learns cluster-conditioned local runtime models, and chooses actions using a switching-aware decision rule. The model is evaluated in a synthetic dynamic benchmark with latent regime drift, abrupt regime switches, missing observations, and multimodal configuration-quality surfaces. On the current enriched benchmark snapshot, Temporal Soft Cluster ISAC achieves the best average total penalty of $0.068843$, outperforming the strongest simpler baselines, including a regression selector at $0.077378$ and a hard Cluster ISAC selector at $0.077723$. These results suggest that temporal context and soft local specialization are both important once ISAC is moved from static instance routing to dynamic partially observed control.
+\end{abstract}
+
+\begin{IEEEkeywords}
+instance-specific algorithm configuration, algorithm selection, temporal clustering, partial observability, dynamic decision making
+\end{IEEEkeywords}
+
+\section{Introduction}
+
+Instance-Specific Algorithm Configuration (ISAC) begins from a simple idea: different regions of the instance space favor different parameter configurations, and observable instance features can be used to route new instances toward an appropriate configuration. In the classical formulation, this logic is largely static. An instance is represented once, assigned to a cluster or predicted label, and then mapped to one portfolio element. This framing is powerful, but it does not capture a growing class of online decision problems in which the instance changes during execution, the best configuration can change over time, and the agent only receives noisy or incomplete observations.
+
+The repository associated with this work was intentionally built in stages. It began with a static synthetic benchmark and simple selector families, then introduced richer learned portfolios, dynamic episodes with switching cost, and partially observed drift. As the simulator became more realistic, a new gap emerged. Pure regression remained strong because it tracked relative cost well, while classical hard-routing ISAC remained attractive because the environment retained region structure. What was missing was a model that combined both temporal awareness and cluster-based local specialization.
+
+This paper studies that model. We introduce Temporal Soft Cluster ISAC, a selector that extends the ISAC intuition into a dynamic setting by combining four ideas:
+\begin{enumerate}
+\item temporalized features rather than one-shot observations,
+\item soft cluster membership rather than hard nearest-cluster assignment,
+\item cluster-specific local runtime estimation,
+\item switching-aware action selection.
+\end{enumerate}
+
+The resulting model is still lightweight and interpretable, but it is expressly designed for the enriched dynamic simulator now used in the repository. The main contribution of the paper is therefore not a claim of universal optimality, but a concrete demonstration that ISAC-style routing can remain competitive, and even become state of the art within the benchmark, when it is extended to handle temporal context and partial observability.
+
+\section{Problem Formulation}
+
+We consider a finite portfolio of parameter vectors
+\[
+\Theta = \{\theta^{(1)}, \dots, \theta^{(K)}\},
+\]
+where each $\theta^{(k)} \in \mathbb{R}^p$ is a candidate configuration. In the dynamic benchmark, an episode consists of a length-$T$ sequence of latent states
+\[
+s_1, s_2, \dots, s_T,
+\]
+which are not observed directly. Instead, the selector receives a noisy and partially missing observation sequence
+\[
+o_1, o_2, \dots, o_T.
+\]
+
+At each timestep $t$, the selector chooses an action $a_t \in \{1,\dots,K\}$, corresponding to one parameter vector $\theta^{(a_t)}$. The instantaneous runtime or cost is
+\[
+c_t = c(s_t, \theta^{(a_t)}),
+\]
+and a switching cost is incurred whenever the selected configuration changes:
+\[
+\kappa_t = \lambda_{\mathrm{switch}} \mathbf{1}\{a_t \neq a_{t-1}\}.
+\]
+The total penalty over an episode is therefore
+\[
+J = \sum_{t=1}^T \bigl(c_t + \kappa_t\bigr),
+\]
+with the convention that $\kappa_1 = 0$.
+
+The benchmark also defines a per-timestep oracle action
+\[
+a_t^* = \arg\min_{1 \le k \le K} c(s_t, \theta^{(k)}),
+\]
+which allows regret-style evaluation:
+\[
+r_t = c(s_t, \theta^{(a_t)}) - c(s_t, \theta^{(a_t^*)}).
+\]
+The average total penalty metric reported in the repository is the mean, across episodes, of
+\[
+\frac{1}{T} \sum_{t=1}^T \bigl(r_t + \kappa_t\bigr).
+\]
+
+\section{Dynamic Benchmark}
+
+The current simulator is designed to stress selectors beyond classical static ISAC. Each episode evolves under latent drift and occasional regime switches. The latent regime affects both the ideal parameter vector and the observation process. Several forms of realism are present:
+\begin{itemize}
+\item \textbf{partial observability}: the selector sees noisy observations rather than the latent state;
+\item \textbf{missing features}: some coordinates are unavailable at a timestep and must be inferred from stale or incomplete information;
+\item \textbf{switching costs}: rapid reconfiguration is penalized;
+\item \textbf{multimodal configuration-quality surfaces}: a single configuration may be good in multiple separated parts of the state space.
+\end{itemize}
+
+The benchmark now also allows each selector to derive its own learned portfolio, with a configurable cap $N_s$. In the current repository configuration, the cap is set to
+\[
+N_s = 12.
+\]
+This matters because the selector is evaluated not merely on routing quality, but also on how effectively it places representative parameter prototypes.
+
+\section{Temporal Soft Cluster ISAC}
+
+\subsection{Design Intuition}
+
+Classical Cluster ISAC assumes that a current feature vector is enough to determine which cluster the instance belongs to. That assumption becomes weak under partial observability and drift. A single observation may be ambiguous, but a short history can reveal whether the system is stabilizing, drifting, or switching regimes.
+
+Temporal Soft Cluster ISAC addresses this by replacing one-shot clustering with clustering in a temporalized feature space. The method also avoids hard cluster assignment, since ambiguity is often unavoidable in partially observed settings. Instead, it computes soft membership weights over clusters and blends cluster-specific local runtime models.
+
+\subsection{Temporal Feature Construction}
+
+Let $o_t \in \mathbb{R}^d$ denote the current observation. The model constructs a contextual feature vector
+\[
+g_t = \Gamma(o_{1:t}),
+\]
+using four components:
+\begin{enumerate}
+\item the current observation $o_t$,
+\item an exponentially smoothed history vector $h_t$,
+\item a first-difference term $\Delta_t = o_t - o_{t-1}$,
+\item a trend term that blends local change with deviation from the running history.
+\end{enumerate}
+
+In the current implementation, the history update is
+\[
+h_t = \beta h_{t-1} + (1-\beta)o_t,
+\]
+with history blend coefficient $\beta \in (0,1)$. The trend term is formed by combining the first difference and the residual from the running history. The final contextual feature vector is the concatenation
+\[
+g_t = [\,o_t,\ h_t,\ \Delta_t,\ \tau_t\,].
+\]
+This temporal summary remains simple enough to interpret while still giving the model access to short-horizon dynamics.
+
+\subsection{Soft Cluster Routing}
+
+Given a set of cluster centers
+\[
+u_1,\dots,u_M \in \mathbb{R}^{4d},
+\]
+the selector computes squared distances in normalized temporal feature space and converts them into soft assignment weights
+\[
+\alpha_j(g_t) =
+\frac{\exp\!\left(-\eta \lVert g_t - u_j \rVert_2^2\right)}
+{\sum_{\ell=1}^M \exp\!\left(-\eta \lVert g_t - u_\ell \rVert_2^2\right)},
+\]
+where $\eta > 0$ is an assignment temperature parameter. Unlike hard nearest-center routing, this allows ambiguous states to borrow information from multiple nearby clusters.
+
+\subsection{Cluster-Conditioned Local Runtime Models}
+
+Each cluster is paired with a local linear predictor over the selector's learned portfolio. If the learned portfolio has size $N_s$, the model estimates cluster-specific runtime surfaces
+\[
+\hat{c}_{j,s}(g_t), \qquad j=1,\dots,M,\ s=1,\dots,N_s.
+\]
+The aggregate predicted runtime for action $s$ is then
+\[
+\hat{c}_s(g_t) = \sum_{j=1}^M \alpha_j(g_t)\hat{c}_{j,s}(g_t).
+\]
+
+This design preserves a key ISAC intuition: different local regions of the instance space should prefer different configurations. The difference is that these regions are now defined in a temporalized, partially observed state space, and the transition between them is smooth rather than abrupt.
+
+\subsection{Switching-Aware Action Rule}
+
+If the previous action was $a_{t-1}$, the deployed action is
+\[
+a_t =
+\arg\min_{1 \le s \le N_s}
+\left(
+\hat{c}_s(g_t) + \gamma \lambda_{\mathrm{switch}}\mathbf{1}\{s \neq a_{t-1}\}
+\right),
+\]
+where $\gamma$ is a learned or tuned weighting factor on switching cost. This rule is important because, in the dynamic benchmark, the best immediate action is not always the best decision after switching cost is taken into account.
+
+\section{Training Procedure}
+
+Training proceeds in three stages.
+
+\subsection{Portfolio Derivation}
+
+From the training episodes, the selector collects temporally aligned observations and corresponding ideal parameter vectors from the simulator. It then derives up to $N_s$ parameter prototypes by weighted averaging in ideal-parameter space. This gives the selector its own learned action set, rather than forcing it to choose among a global fixed portfolio.
+
+\subsection{Soft Clustering}
+
+The contextualized feature vectors are normalized and clustered using an iterative soft $k$-means-style update. If the normalized training matrix is denoted by $G \in \mathbb{R}^{n \times 4d}$, then the centers are updated by alternating between:
+\begin{enumerate}
+\item computing soft assignments $\alpha_{ij}$ for every training example $i$ and cluster $j$;
+\item recomputing each center as the weighted average of its assigned examples.
+\end{enumerate}
+
+\subsection{Local Runtime Fitting}
+
+After portfolio derivation and soft clustering, the model fits a local linear surrogate for each cluster. The targets are surrogate runtimes induced by squared distance between an ideal parameter vector and each learned portfolio member. Although simple, this local modeling step gives the selector a notion of how action quality changes across local regions of the temporal state space.
+
+\section{Experimental Setup}
+
+The results in this paper use the repository's enriched dynamic scenario with:
+\begin{itemize}
+\item horizon $T = 16$,
+\item drift scale $0.22$,
+\item regime switch probability $0.18$,
+\item switching cost $0.04$,
+\item observation noise $0.10$,
+\item missing-feature probability $0.22$,
+\item multimodal surface scale $0.30$,
+\item learned portfolio cap $N_s = 12$.
+\end{itemize}
+
+The representative validated snapshot uses $80$ training episodes, $80$ test episodes, and seed $11$. Competing selectors include Regressor, Cluster ISAC, Deep Graph Clustering for Algorithm Configuration (DGCAC)-inspired selector, Multi-Layer Perceptron (MLP) selector, and a privileged classifier that uses oracle best-config labels during training.
+
+\section{Results}
+
+Table~\ref{tab:dynamic-results} reports the current validated enriched dynamic snapshot from the repository.
+
+\begin{table}[t]
+\caption{Dynamic benchmark results under the enriched partially observed scenario.}
+\label{tab:dynamic-results}
+\centering
+\begin{tabular}{lcccc}
+\toprule
+Selector & Avg. regret & Avg. switch & Avg. total & Accuracy \\
+\midrule
+Temporal Soft Cluster ISAC & 0.061812 & 0.007031 & 0.068843 & 0.317188 \\
+Regressor & 0.064847 & 0.012531 & 0.077378 & 0.350000 \\
+Cluster ISAC & 0.063036 & 0.014687 & 0.077723 & 0.324219 \\
+DGCAC-inspired & 0.071707 & 0.006781 & 0.078488 & 0.281250 \\
+MLP Selector & 0.067181 & 0.015219 & 0.082399 & 0.357031 \\
+Privileged Classifier & 0.078971 & 0.013656 & 0.092627 & 0.318750 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Three observations are most important.
+
+First, the method achieves the lowest average total penalty among all tested selectors. The gain over Regressor is not due to dramatically lower one-step regret; rather, it comes from balancing local specialization with lower switching cost. This is exactly the behavior the model was designed to encourage.
+
+Second, hard Cluster ISAC remains highly competitive, which confirms that the benchmark still contains meaningful regional structure. However, the temporal soft-cluster variant improves on it by smoothing transitions between clusters and using temporal context to disambiguate otherwise noisy states.
+
+Third, the result highlights a useful separation between static and dynamic settings. In the static benchmark, simpler region-based selectors can remain dominant. In the dynamic benchmark, temporal context and switching-aware soft routing become materially more valuable.
+
+\section{Discussion}
+
+The current results do not prove that Temporal Soft Cluster ISAC is universally superior to regression-style methods. Instead, they show that once ISAC is extended to a dynamic partially observed environment, there is a concrete regime in which a temporally aware clustering model becomes the strongest available option.
+
+This is an important qualitative result for two reasons. First, it justifies the simulator enrichments introduced in the repository. Without drift, partial observability, and switching cost, a plain regressor often remains hard to beat. Second, it suggests that modern ISAC research should be understood not only as better static routing, but as a bridge toward dynamic decision systems that combine representation, local specialization, and control-aware action selection.
+
+The current method still has limitations. Its temporalization is handcrafted rather than learned end to end. Its cluster-conditioned predictors are local linear surrogates rather than richer neural experts. Its action rule is myopic beyond one-step switching cost. These limitations are acceptable in the present project stage because the method is meant to remain interpretable and easy to compare against simpler selectors.
+
+\section{Future Work}
+
+Several extensions are natural.
+\begin{itemize}
+\item Replace handcrafted temporal features with a recurrent or attention-based history encoder.
+\item Learn portfolio derivation and routing jointly rather than sequentially.
+\item Move from local linear runtime models to cluster-specific neural experts.
+\item Introduce train/test shift in the observation corruption process.
+\item Extend the benchmark to graph-structured raw instances so that graph-based DGCAC variants can be compared more faithfully.
+\end{itemize}
+
+\section{Conclusion}
+
+This paper introduced Temporal Soft Cluster ISAC, a dynamic extension of instance-specific algorithm configuration for partially observed drifting environments. The method combines temporal feature construction, soft cluster routing, cluster-conditioned local runtime models, and switching-aware action selection. In the current enriched dynamic simulator, it achieves the best average total penalty among the tested selectors. More broadly, it demonstrates that the central ISAC idea, local specialization driven by observable structure, remains viable in dynamic settings when it is coupled with temporal context and soft decision boundaries.
+
+\begin{thebibliography}{9}
+
+\bibitem{isac}
+S. Kadioglu, Y. Malitsky, A. Sabharwal, H. Samulowitz, and K. Sellmann,
+``ISAC -- Instance-Specific Algorithm Configuration,''
+in \emph{Proceedings of the 19th European Conference on Artificial Intelligence (ECAI)}, 2010, pp. 751--756.
+
+\bibitem{aslib}
+M. Bischl, P. Kerschke, L. Kotthoff, M. Lindauer, Y. Malitsky, A. Fr\'echette, H. Hoos, F. Hutter, K. Leyton-Brown, K. Tierney, and J. Vanschoren,
+``ASlib: A Benchmark Library for Algorithm Selection,''
+\emph{Artificial Intelligence}, vol. 237, pp. 41--58, 2016.
+
+\bibitem{dgcac}
+W. Song, Y. Liu, Z. Cao, Y. Wu, and Q. Li,
+``Instance-Specific Algorithm Configuration via Unsupervised Deep Graph Clustering,''
+\emph{Engineering Applications of Artificial Intelligence}, vol. 125, 2023.
+
+\end{thebibliography}
+
+\end{document}

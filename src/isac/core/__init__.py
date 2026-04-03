@@ -1,5 +1,10 @@
 """Core utilities for synthetic data generation and preprocessing."""
 
+from isac.core.algorithmic_portfolio import (
+    AlgorithmicEpisode,
+    AlgorithmicPortfolioBenchmark,
+    AlgorithmicState,
+)
 from isac.core.dynamic_portfolio import (
     DynamicPortfolioBenchmark,
     DynamicPortfolioEpisode,
@@ -10,6 +15,9 @@ from isac.core.portfolio import ParameterConfig, PortfolioBenchmark, PortfolioIn
 from isac.core.synthetic import SyntheticBenchmark, SyntheticInstance
 
 __all__ = [
+    "AlgorithmicEpisode",
+    "AlgorithmicPortfolioBenchmark",
+    "AlgorithmicState",
     "DynamicPortfolioBenchmark",
     "DynamicPortfolioEpisode",
     "DynamicPortfolioState",

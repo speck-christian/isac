@@ -21,6 +21,7 @@ def test_noise_sweep_returns_expected_grid_rows() -> None:
         "Privileged Classifier",
         "MLP Selector",
         "Regressor",
+        "Temporal MoE",
     }
     assert set(results["selector"]) == expected_selectors
     assert len(results) == 2 * 1 * 2 * 2 * len(expected_selectors)

@@ -1,0 +1,14 @@
+{
+  "artifact_tag": "robustness_default",
+  "seeds": [
+    31,
+    32,
+    33
+  ],
+  "n_episodes": 12,
+  "horizon": 12,
+  "observation_noise": 0.08,
+  "regime_switch_prob": 0.14,
+  "portfolio_source": "smac",
+  "portfolio_trials": 16
+}

@@ -13,3 +13,5 @@ docs/report/build/
 *.log
 *.out
 *.toc
+.DS_Store
+smac3_output/

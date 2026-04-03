@@ -1,6 +1,7 @@
 """Analysis helpers for benchmark evaluation and dashboards."""
 
 from isac.analysis.portfolio_dashboard import (
+    evaluate_algorithmic_selectors,
     evaluate_dynamic_selectors,
     evaluate_selectors,
     make_feature_embedding_table,
@@ -10,6 +11,7 @@ from isac.analysis.portfolio_dashboard import (
 
 __all__ = [
     "evaluate_dynamic_selectors",
+    "evaluate_algorithmic_selectors",
     "evaluate_selectors",
     "make_feature_embedding_table",
     "make_instance_table",
